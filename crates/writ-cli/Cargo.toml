@@ -1,0 +1,24 @@
+[package]
+name = "writ-cli"
+description = "The writ binary: run, proxy, log, show, verify, replay, policy test/add, doctor, report."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+writ-core.workspace = true
+writ-policy.workspace = true
+writ-ledger.workspace = true
+writ-mcp.workspace = true
+writ-sandbox.workspace = true
+writ-replay.workspace = true
+writ-otel.workspace = true
+writ-tui.workspace = true
+clap.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+serde_yaml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true

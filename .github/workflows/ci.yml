@@ -1,0 +1,25 @@
+name: ci
+on:
+  push: { branches: [main] }
+  pull_request:
+
+jobs:
+  test:
+    strategy:
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo fmt --all -- --check
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+      - run: cargo test --workspace
+
+  claim-discipline:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: forbid unearned assurance claims (spec §7/§15)
+        run: |
+          ! grep -rniE "bank.?grade|SOC.?2 (certified|compliant)|tamper-proof|prevents? prompt injection|sub-millisecond"             --include="*.md" --include="*.rs" . || (echo "claim-discipline violation" && exit 1)

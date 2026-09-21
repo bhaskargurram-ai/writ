@@ -1,0 +1,13 @@
+[package]
+name = "writ-sandbox"
+description = "SandboxBackend trait adapters: local-os and external backends."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+writ-core.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+thiserror.workspace = true

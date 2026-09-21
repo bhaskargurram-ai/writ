@@ -1,0 +1,27 @@
+# writ.yaml — example policy (Writ v2.0 technical specification, §7)
+version: 1
+default: ask                          # fail-closed. --yolo flips this to allow.
+
+rules:
+  - id: block-destructive-shell
+    when: tool == "bash" and command matches "rm -rf|mkfs|dd if=|:(){ "
+    verdict: deny
+    reason: "Destructive system command. Narrow the path and retry."
+
+  - id: protect-production-db
+    when: tool startswith "postgres" and query matches "(?i)(DROP|TRUNCATE|ALTER)"
+    verdict: ask
+    irreversible: true                # excluded from automated replay
+    timeout: 5m
+
+  - id: egress-allowlist
+    when: tool == "http" and not url.host in hosts.allowed
+    verdict: deny
+
+  - id: never-read-secrets
+    when: path matches "\\.env|id_rsa|\\.pem$|credentials$"
+    verdict: deny
+    reason: "Secrets are masked from the agent by design."
+
+hosts:
+  allowed: [api.github.com, registry.npmjs.org, "*.internal.acme.com"]

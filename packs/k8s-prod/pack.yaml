@@ -1,0 +1,4 @@
+id: k8s-prod
+version: 0.1.0
+description: Community policy pack (Wave 3; rules land with agent A15).
+rules: []
