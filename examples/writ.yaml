@@ -4,7 +4,7 @@ default: ask                          # fail-closed. --yolo flips this to allow.
 
 rules:
   - id: block-destructive-shell
-    when: tool == "bash" and command matches "rm -rf|mkfs|dd if=|:(){ "
+    when: tool == "bash" and command matches "rm -rf|mkfs|dd if=|:\(\)\{"
     verdict: deny
     reason: "Destructive system command. Narrow the path and retry."
 
