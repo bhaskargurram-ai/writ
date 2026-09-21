@@ -1,0 +1,31 @@
+# Security Policy
+
+## Reporting a vulnerability
+
+Report suspected vulnerabilities privately to **security@writai.dev**
+(or via GitHub private vulnerability reporting once the organisation is live).
+Do not open a public issue for security reports.
+
+## Response SLA
+
+| Stage | Commitment |
+|---|---|
+| Acknowledgement | within 72 hours |
+| Initial triage and severity assessment | within 7 days |
+| Fix or mitigation plan | within 30 days for critical severity |
+
+## Scope
+
+In scope: the `writ` binary, all crates in this repository, the policy
+engine, the ledger, the MCP proxy, and sandbox adapters. The threat model —
+including explicit exclusions (prompt injection, model-layer safety,
+malicious operator, side-effect reversal) — is in
+[docs/THREAT_MODEL.md](THREAT_MODEL.md).
+
+## Supply chain commitments
+
+- Apache-2.0, permanently. The core will never be relicensed.
+- Releases are Sigstore keyless-signed with provenance attestations.
+- Every release ships an SBOM (SPDX and CycloneDX).
+- OpenSSF Scorecard results are published.
+- Contributions use DCO sign-off (`Signed-off-by`), not a CLA.
