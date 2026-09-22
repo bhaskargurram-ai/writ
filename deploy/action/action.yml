@@ -31,6 +31,10 @@ runs:
   steps:
     - name: Install writ
       shell: bash
+      env:
+        # Until the first GitHub Release exists, build from the checked-out
+        # source. Release users can unset this and download signed artifacts.
+        WRIT_FROM_SOURCE: "1"
       run: |
         curl -fsSL https://raw.githubusercontent.com/bhaskargurram-ai/writ/main/scripts/install.sh | sh
         echo "$HOME/.writ/bin" >> "$GITHUB_PATH"
