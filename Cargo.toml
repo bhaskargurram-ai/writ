@@ -20,7 +20,7 @@ version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/writ-agent/writ"
-homepage = "https://writ-bhaskar17.vercel.app"
+homepage = "https://writ-omega.vercel.app"
 description = "Authorization and provenance for AI agents. One policy file, one tamper-evident ledger, any agent."
 
 [workspace.dependencies]
