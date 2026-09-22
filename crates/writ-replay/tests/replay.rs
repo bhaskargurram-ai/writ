@@ -10,14 +10,12 @@ use writ_replay::{branch_from, load_trajectory, policy_replay};
 struct TestDir(std::path::PathBuf);
 impl TestDir {
     fn new() -> Self {
-        let p = std::env::temp_dir().join(format!(
-            "writ-replay-{}-{}",
-            std::process::id(),
-            std::time::SystemTime::now()
-                .duration_since(std::time::UNIX_EPOCH)
-                .unwrap()
-                .as_nanos()
-        ));
+        let p = std::env::temp_dir().join(format!("writ-replay-{}-{}", std::process::id(), {
+            // A counter, not a timestamp: clock resolution is coarse on some
+            // platforms (macOS: µs), so parallel tests collided on one dir.
+            static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
+        }));
         std::fs::create_dir_all(&p).unwrap();
         TestDir(p)
     }
