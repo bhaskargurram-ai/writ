@@ -11,11 +11,11 @@ use std::rc::Rc;
 use anyhow::{anyhow, bail, Context, Result};
 use writ_core::approver::FailClosedApprover;
 use writ_core::call::{CallerIdentity, InterceptMode, ToolCall};
-use writ_core::ledger::{LedgerRecord, LedgerStore, LedgerWriter};
+use writ_core::ledger::{LedgerRecord, LedgerWriter};
 use writ_core::pipeline::handle_call;
 use writ_core::verdict::Verdict;
 use writ_core::{PolicyEngine, Timestamp};
-use writ_ledger::{FileLedgerStore, SessionSummary};
+use writ_ledger::SessionSummary;
 use writ_mcp::{stdio_transport, CredentialStore, McpProxy, ProxyConfig, ProxyDecision};
 use writ_policy::NativePolicyEngine;
 use writ_tui::{render_call_line, render_rule_note, TuiApprover};
@@ -82,7 +82,7 @@ pub fn run(policy: &Path, ledger: &Path, yolo: bool, backend: &str, cmd: &[Strin
     banner(&engine, policy, ledger);
     eprintln!("  mode: process wrap · backend: {backend} · per-tool coverage: run `writ doctor`");
 
-    let mut store = FileLedgerStore::open(ledger).map_err(|e| anyhow!(e.to_string()))?;
+    let mut store = writ_ledger::open_store(ledger).map_err(|e| anyhow!(e.to_string()))?;
     let session = format!("run-{}-{}", std::process::id(), Timestamp::now().epoch_ms());
     let cmdline = cmd.join(" ");
     let call = make_call(
@@ -94,7 +94,7 @@ pub fn run(policy: &Path, ledger: &Path, yolo: bool, backend: &str, cmd: &[Strin
     );
 
     let outcome = {
-        let mut writer = LedgerWriter::new(&mut store);
+        let mut writer = LedgerWriter::new(&mut *store);
         handle_call(&call, &engine, &mut writer, &TuiApprover::new())
             .map_err(|e| anyhow!(e.to_string()))?
     };
@@ -123,7 +123,7 @@ pub fn run(policy: &Path, ledger: &Path, yolo: bool, backend: &str, cmd: &[Strin
         .with_context(|| format!("spawn {}", cmd[0]))?;
     let code = status.code().unwrap_or(-1);
 
-    let mut writer = LedgerWriter::new(&mut store);
+    let mut writer = LedgerWriter::new(&mut *store);
     writer
         .record_execution(&outcome.record, backend, code, &[])
         .map_err(|e| anyhow!(e.to_string()))?;
@@ -163,7 +163,7 @@ pub fn proxy(
             .map_err(|e| anyhow!(e.to_string()))?;
 
     let store = Rc::new(RefCell::new(
-        FileLedgerStore::open(ledger).map_err(|e| anyhow!(e.to_string()))?,
+        writ_ledger::open_store(ledger).map_err(|e| anyhow!(e.to_string()))?,
     ));
     // call_id → (decision record, redact patterns from the verdict)
     let decisions: DecisionMap = Rc::new(RefCell::new(HashMap::new()));
@@ -174,7 +174,7 @@ pub fn proxy(
     let ledger_d = ledger.to_path_buf();
     let decide = Box::new(move |call: &ToolCall| {
         let mut s = store_d.borrow_mut();
-        let mut writer = LedgerWriter::new(&mut *s);
+        let mut writer = LedgerWriter::new(&mut **s);
         match handle_call(call, &engine_d, &mut writer, &FailClosedApprover) {
             Ok(outcome) => {
                 emit_span(&ledger_d, call, &outcome.verdict);
@@ -225,7 +225,7 @@ pub fn proxy(
             };
             let bytes = serde_json::to_vec(result).unwrap_or_default();
             let mut s = store_o.borrow_mut();
-            let mut writer = LedgerWriter::new(&mut *s);
+            let mut writer = LedgerWriter::new(&mut **s);
             let _ = writer.record_execution(&entry.0, "mcp-proxy", 0, &bytes);
         },
     ));
@@ -482,7 +482,7 @@ pub fn report(ledger: &Path, out: &Path) -> Result<()> {
     if !ledger.exists() {
         bail!("no ledger at {}", ledger.display());
     }
-    let store = FileLedgerStore::open(ledger).map_err(|e| anyhow!(e.to_string()))?;
+    let store = writ_ledger::open_store(ledger).map_err(|e| anyhow!(e.to_string()))?;
     let mut rows = String::new();
     let (mut n_allow, mut n_deny, mut n_ask, mut n_redact) = (0u64, 0u64, 0u64, 0u64);
     for rec in store.iter() {

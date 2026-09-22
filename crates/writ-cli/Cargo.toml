@@ -27,3 +27,8 @@ serde_yaml.workspace = true
 regex.workspace = true
 tracing.workspace = true
 tracing-subscriber.workspace = true
+
+[features]
+default = []
+# SQLite ledger store (WAL); compiles the bundled SQLite C sources.
+sqlite = ["writ-ledger/sqlite"]

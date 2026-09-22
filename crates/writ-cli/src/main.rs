@@ -22,7 +22,9 @@ struct Cli {
     #[arg(long, global = true, default_value = "writ.yaml")]
     policy: PathBuf,
 
-    /// Ledger path (default: ./.writ/ledger.jsonl).
+    /// Ledger path (default: ./.writ/ledger.jsonl). A SQLite ledger (`.db`,
+    /// `.sqlite`, `.sqlite3`, or any file with a SQLite header) needs a
+    /// build with `--features sqlite`; without it, such paths are refused.
     #[arg(long, global = true, default_value = ".writ/ledger.jsonl")]
     ledger: PathBuf,
 

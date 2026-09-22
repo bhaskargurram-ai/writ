@@ -1,10 +1,11 @@
 //! Read-only query helpers for the CLI (`writ log`, `writ show`).
 //!
-//! All helpers stream the JSONL file line by line; none load the ledger
-//! into memory beyond the records they return.
+//! All helpers stream the ledger record by record (JSONL or SQLite, see
+//! [`detect_store_kind`](crate::detect_store_kind)); none load the ledger
+//! into memory beyond the records they return. The `*_in` variants take any
+//! record stream, e.g. [`LedgerStore::iter`](writ_core::ledger::LedgerStore::iter).
 
 use std::collections::HashMap;
-use std::fs::File;
 use std::path::Path;
 
 use serde::{Deserialize, Serialize};
@@ -13,7 +14,7 @@ use writ_core::error::Result;
 use writ_core::ledger::LedgerRecord;
 use writ_core::verdict::Verdict;
 
-use crate::file_store::record_iter;
+use crate::store::read_records;
 
 /// Per-session rollup for `writ log`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -30,10 +31,16 @@ pub struct SessionSummary {
 
 /// Summarize every session in the ledger at `path`, in first-seen order.
 pub fn sessions(path: impl AsRef<Path>) -> Result<Vec<SessionSummary>> {
-    let file = File::open(path.as_ref())?;
+    sessions_in(read_records(path.as_ref())?)
+}
+
+/// [`sessions`] over any record stream.
+pub fn sessions_in(
+    records: impl IntoIterator<Item = Result<LedgerRecord>>,
+) -> Result<Vec<SessionSummary>> {
     let mut order: Vec<String> = Vec::new();
     let mut by_id: HashMap<String, SessionSummary> = HashMap::new();
-    for item in record_iter(file) {
+    for item in records {
         let rec = item?;
         let summary = by_id.entry(rec.session_id.clone()).or_insert_with(|| {
             order.push(rec.session_id.clone());
@@ -63,9 +70,16 @@ pub fn sessions(path: impl AsRef<Path>) -> Result<Vec<SessionSummary>> {
 /// All records for one call — normally the `Decision` plus its linked
 /// `Execution` (ADR-003) — in ledger order.
 pub fn find_by_call_id(path: impl AsRef<Path>, call_id: &str) -> Result<Vec<LedgerRecord>> {
-    let file = File::open(path.as_ref())?;
+    find_by_call_id_in(read_records(path.as_ref())?, call_id)
+}
+
+/// [`find_by_call_id`] over any record stream.
+pub fn find_by_call_id_in(
+    records: impl IntoIterator<Item = Result<LedgerRecord>>,
+    call_id: &str,
+) -> Result<Vec<LedgerRecord>> {
     let mut found = Vec::new();
-    for item in record_iter(file) {
+    for item in records {
         let rec = item?;
         if rec.call_id == call_id {
             found.push(rec);

@@ -146,6 +146,12 @@ impl LedgerStore for FileLedgerStore {
                 record.index
             )));
         }
+        if record.compute_hash()? != record.record_hash {
+            return Err(WritError::Ledger(format!(
+                "append rejected: record {} record_hash does not match its contents",
+                record.index
+            )));
+        }
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
         let mut file = OpenOptions::new().append(true).open(&self.path)?;

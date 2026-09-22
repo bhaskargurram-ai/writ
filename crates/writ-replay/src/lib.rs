@@ -19,10 +19,10 @@ use std::path::Path;
 
 use writ_core::call::ToolCallContext;
 use writ_core::error::{Result, WritError};
-use writ_core::ledger::{LedgerRecord, LedgerStore, RecordKind};
+use writ_core::ledger::{LedgerRecord, RecordKind};
 use writ_core::verdict::Verdict;
 use writ_core::PolicyEngine;
-use writ_ledger::FileLedgerStore;
+use writ_ledger::open_store;
 use writ_policy::NativePolicyEngine;
 
 /// One ledger decision plus its linked execution, if the call was dispatched.
@@ -33,9 +33,10 @@ pub struct RecordedStep {
 }
 
 /// Load a session's trajectory: decision records in order, each paired with
-/// its execution record where one exists.
+/// its execution record where one exists. The store (JSONL or SQLite) is
+/// chosen by `writ_ledger::open_store`.
 pub fn load_trajectory(ledger: &Path, session_id: &str) -> Result<Vec<RecordedStep>> {
-    let store = FileLedgerStore::open(ledger)?;
+    let store = open_store(ledger)?;
     let mut decisions: Vec<LedgerRecord> = Vec::new();
     let mut executions: HashMap<u64, LedgerRecord> = HashMap::new();
     for rec in store.iter() {
