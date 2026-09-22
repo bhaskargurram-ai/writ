@@ -1,32 +1,32 @@
-# Model Routing Matrix — which model for which agent
+﻿# Model Routing Matrix — all agents on GPT-5.5
 
-The build plan (§5) tiers tasks T1/T2/T3. This file maps those tiers onto
-concrete model families so no premium token is ever spent on cheap work.
-Configure per-session models in your Cline provider settings; this table is
-the assignment sheet.
+User override: **every tier and every agent should use GPT-5.5**.
 
-| Agent | Role | Tier | Recommended models (any one) | Avoid |
-|---|---|---|---|---|
-| A0 | Orchestrator / contracts / ADRs | T1 | Claude Opus 4.x, GPT-5-pro, Kimi K3-thinking, GLM-4.6 | small models — contract errors compound |
-| A1 | Policy DSL parser/evaluator | T1 | Claude Opus/Sonnet 4.x, Kimi K3, GLM-4.6 | economy tiers — security-path parser |
-| A2 | Rego/Cedar engine adapters | T2 | Claude Sonnet 4.x, Kimi K2, GLM-4.5 | — |
-| A3 | Ledger/hash-chain/verify | T1 | Claude Opus 4.x, Kimi K3-thinking, GLM-4.6 | — |
-| A4 | MCP proxy protocol | T1 | Claude Sonnet/Opus 4.x, Kimi K3, GLM-4.6 | — |
-| A5–A7 | Kernel sandboxing (Linux/macOS/Windows) | T1 | Claude Opus 4.x, GPT-5-pro, Kimi K3-thinking | anything small — syscall security |
-| A8 | Container/VM backends + benches | T2 | Claude Sonnet 4.x, Kimi K2, GLM-4.5, Qwen3-Coder | — |
-| A9 | TUI approval gate | T2 | Claude Sonnet 4.x, Kimi K2, GLM-4.5 | — |
-| A10 | Replay engine | T2 | Claude Sonnet 4.x, Kimi K2, GLM-4.5 | — |
-| A11 | OTel emitter, SDK adapters | T2/T3 | Kimi K2, GLM-4.5-Air, Claude Haiku 4.x | — |
-| A12 | CLI verbs, doctor, report | T2/T3 | Kimi K2, GLM-4.5-Air, Qwen3-Coder | — |
-| A13 | Enterprise (Helm/SSO/RBAC/SIEM) | T2 + T1 design review | Sonnet for impl; Opus/K3-thinking for RBAC/SSO design review | — |
-| A14 | DevOps/release/SBOM/scorecard | T3 | GLM-4.5-Air, Kimi K2, Claude Haiku 4.x | frontier — pure plumbing |
-| A15 | Docs/packs/examples | T3 | GLM-4.5-Air, Kimi K2, Claude Haiku 4.x | frontier — writes to a spec |
-| A16 | Adversarial review / fuzz triage | T1 (review) | Claude Opus 4.x, Kimi K3-thinking, GLM-4.6 | — |
-| A16 | Test/fixture generation | T3 | GLM-4.5-Air, Kimi K2 | — |
+> Runtime note: the Cline team-dispatch API used in this workspace does not expose a per-agent model-selection field. This file is the routing policy for human/operator configuration. Set the active teammate/session model to GPT-5.5 in the provider/Cline settings before dispatching agents.
+
+| Agent | Role | Tier | Model |
+|---|---|---|---|
+| A0 | Orchestrator / contracts / ADRs | T1 | GPT-5.5 |
+| A1 | Policy DSL parser/evaluator | T1 | GPT-5.5 |
+| A2 | Rego/Cedar engine adapters | T2 | GPT-5.5 |
+| A3 | Ledger/hash-chain/verify | T1 | GPT-5.5 |
+| A4 | MCP proxy protocol | T1 | GPT-5.5 |
+| A5 | Linux kernel sandboxing | T1 | GPT-5.5 |
+| A6 | macOS kernel sandboxing | T1 | GPT-5.5 |
+| A7 | Windows sandboxing | T1 | GPT-5.5 |
+| A8 | Container/VM backends + benches | T2 | GPT-5.5 |
+| A9 | TUI approval gate | T2 | GPT-5.5 |
+| A10 | Replay engine | T2 | GPT-5.5 |
+| A11 | OTel emitter, SDK adapters | T2/T3 | GPT-5.5 |
+| A12 | CLI verbs, doctor, report | T2/T3 | GPT-5.5 |
+| A13 | Enterprise: Helm/SSO/RBAC/SIEM | T2 + T1 review | GPT-5.5 |
+| A14 | DevOps/release/SBOM/scorecard | T3 | GPT-5.5 |
+| A15 | Docs/packs/examples | T3 | GPT-5.5 |
+| A16 | Adversarial review / fuzz triage / test generation | T1/T3 | GPT-5.5 |
 
 ## Rules
-1. Two failed attempts at one tier → escalate one tier up.
-2. T1 completion → follow-up polish may be downgraded a tier.
-3. Never run T1 models on fixture/docs/CI-plumbing volume work.
-4. Every task prompt is self-contained (see plan §11 template) so switching
-   models between sessions loses no context.
+
+1. All future teammate sessions should run with GPT-5.5.
+2. Do not downgrade by task type unless the user explicitly changes this override.
+3. If GPT-5.5 is unavailable in the runtime, stop and report the model-availability problem rather than silently using a fallback.
+4. Task prompts remain self-contained (see `WRIT_MASTER_BUILD_PLAN.md` §11) so restarting agents with GPT-5.5 loses no context.
