@@ -19,7 +19,7 @@ the Wave-4 phrases "military grade", "zero latency" and "unbreakable"):
   everywhere (then the honesty statements must be rephrased).
 
 Meta files that define the discipline itself are excluded, matching ci.yml's
-EXCLUDE list (WRIT_MASTER_BUILD_PLAN.md quotes the phrases; ci.yml and the PR
+EXCLUDE list (docs/internal/BUILD_PLAN.md quotes the phrases; ci.yml and the PR
 template enforce or describe them), plus this script (it contains the
 patterns).
 
@@ -60,7 +60,7 @@ EXCLUDED_DIRS = {".git", "target", "node_modules", "corpus", "artifacts", "cover
 # Meta files that define or describe the discipline itself (mirrors ci.yml's
 # EXCLUDE list), plus this script, which holds the patterns as data.
 EXCLUDED_FILES = {
-    "WRIT_MASTER_BUILD_PLAN.md",
+    "docs/internal/BUILD_PLAN.md",
     ".github/workflows/ci.yml",
     ".github/workflows/fuzz.yml",
     ".github/PULL_REQUEST_TEMPLATE.md",

@@ -23,7 +23,7 @@ cargo fmt --all -- --check
 
 ## Crate ownership
 
-Every crate has an owning agent role (see `WRIT_MASTER_BUILD_PLAN.md` §5.2).
+Every crate has an owning agent role (see `docs/internal/BUILD_PLAN.md` §5.2).
 Changes to the frozen contracts in `writ-core` or `docs/INTERFACES.md`
 require an ADR in `docs/DECISIONS.md` and maintainer review.
 

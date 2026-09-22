@@ -2,7 +2,7 @@
 
 Minimal Helm chart scaffold for Wave 3 cluster mode.
 
-This chart is intentionally not a production promise yet. It captures the planned shapes from `WRIT_MASTER_BUILD_PLAN.md` §3.8/§20:
+This chart is intentionally not a production promise yet. It captures the planned shapes from `docs/internal/BUILD_PLAN.md` §3.8/§20:
 
 - shared `writ-gateway` Deployment and Service;
 - sidecar-per-agent-pod example Deployment;

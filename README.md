@@ -11,6 +11,8 @@ Your agent asks. Your policy decides. The ledger remembers.
 [![rust](https://img.shields.io/badge/rust-stable-b7410e)](rust-toolchain.toml)
 [![status](https://img.shields.io/badge/status-pre--release-d29922)](#status)
 
+[Website](https://writ-omega.vercel.app) · [Docs](docs/README.md) · [Threat model](docs/THREAT_MODEL.md) · [Changelog](CHANGELOG.md)
+
 <img src="docs/assets/demo-gate.svg" alt="writ run -- claude: a session where two calls are allowed, one is redacted, one waits for a human and is denied, and one egress call is refused with its rule and reason" width="900">
 
 </div>
@@ -32,7 +34,8 @@ writ run -- claude
 ```
 
 No daemon, no images, no account. The default backend is the host OS, and the
-first run creates `.writ/ledger.jsonl` next to your policy.
+first run creates `.writ/ledger.jsonl` next to your policy. For a SQLite
+ledger, build with `--features sqlite` and pass `--ledger .writ/ledger.db`.
 
 ## The policy that produced that session
 
@@ -147,10 +150,10 @@ Full residual-risk table: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 | Layer | Today | Next |
 |---|---|---|
 | Agents | any, via `run` or `proxy` | SDK hooks: LangGraph, OpenAI Agents SDK, Claude Agent SDK |
-| Interception | MCP stdio proxy, process wrap | SSE + streamable HTTP, kernel-enforced wrap |
-| Policy engines | native DSL | Rego, Cedar — same verdict IR, same fixture corpus |
-| Sandbox backends | local-os | docker, microsandbox, e2b/firecracker, k8s |
-| Ledger stores | JSONL (every platform) | SQLite WAL, Postgres + object store, signed receipts |
+| Interception | MCP stdio proxy, process wrap (launch supervision) | SSE + streamable HTTP, `writ run` inside the kernel boundary |
+| Policy engines | native DSL, Rego, Cedar — one verdict IR, one fixture corpus | — |
+| Sandbox backends | local-os with a kernel boundary (Landlock + seccomp · AppContainer + Job Object · Seatbelt), docker | microsandbox, e2b/firecracker, k8s |
+| Ledger stores | JSONL (every platform), SQLite WAL (`sqlite` feature) | Postgres + object store, signed receipts |
 | Platforms | macOS, Linux, Windows — CI builds all three | six release targets |
 
 ## Compared to the neighbours, fairly
@@ -168,21 +171,42 @@ Full residual-risk table: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
 ## Status
 
-Pre-release. The core spine is built and tested; the coverage and enterprise
-waves are in progress. Nine crates, one frozen record schema, 64 tests.
+Pre-release. The core spine, all three policy engines, both workstation
+ledger stores and the kernel sandbox are built and tested on Linux, macOS
+and Windows in CI; the enterprise wave is in progress. Twelve crates, one
+frozen record schema.
 
 | Wave | Scope | State |
 |---|---|---|
 | 0 | Frozen contracts, threat model, ADRs, CI | done |
 | 1 | Native policy engine, ledger + verify, MCP stdio proxy, local-os sandbox, approval gate, CLI | done |
 | 2 | `doctor`, `report`, replay trio, `policy test`, OTel spans, release pipeline | done |
-| 2 | Kernel hardening (Landlock/seccomp · Seatbelt · restricted tokens), container backends, benchmarks | in progress |
-| 3 | Rego + Cedar, SDK hooks, Postgres ledger, anchored receipts, Helm/SSO/RBAC/SIEM | in progress |
-| 4 | Fuzzing, e2e matrix, published benchmarks, 1.0 | not started |
+| 2 | Kernel sandbox (Landlock/seccomp · AppContainer · Seatbelt), docker backend, SQLite ledger, benchmarks | done — confining `writ run` itself is open |
+| 3 | Rego + Cedar | done |
+| 3 | SDK hooks, Postgres ledger, anchored receipts, Helm/SSO/RBAC/SIEM | in progress |
+| 4 | Fuzzing (running weekly), e2e matrix, published benchmarks, 1.0 | in progress |
 
 `writ doctor` is the authority on what your build actually enforces. The plan and
 its honest wave status live in
-[WRIT_MASTER_BUILD_PLAN.md](WRIT_MASTER_BUILD_PLAN.md).
+[docs/internal/BUILD_PLAN.md](docs/internal/BUILD_PLAN.md).
+
+## Repository layout
+
+| Path | What lives there |
+|---|---|
+| `crates/writ-core` | Frozen contracts: call, verdict IR, ledger record, sandbox, approver, pipeline |
+| `crates/writ-policy`, `-rego`, `-cedar` | The three policy engines behind one `PolicyEngine` trait |
+| `crates/writ-ledger` | Hash chain, JSONL and SQLite stores, `verify` |
+| `crates/writ-sandbox`, `-docker` | `local-os` kernel boundary and the docker backend |
+| `crates/writ-mcp` | MCP stdio proxy |
+| `crates/writ-cli`, `writ-tui` | The `writ` binary and its approval gate |
+| `crates/writ-replay`, `writ-otel` | Trajectory replay and OpenTelemetry spans |
+| `crates/writ-bench`, `fuzz/` | Criterion benches and cargo-fuzz targets (standalone crates) |
+| `packs/`, `examples/` | Policy packs and example `writ.yaml` files |
+| `adapters/` | SDK hook contracts (LangGraph, OpenAI Agents SDK, Claude Agent SDK) |
+| `deploy/` | GitHub Action, Helm chart, air-gap and Terraform notes |
+| `docs/` | Policy reference, interfaces, threat model, ADRs — [index](docs/README.md) |
+| `site/` | The landing page |
 
 ## Contributing
 

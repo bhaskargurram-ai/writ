@@ -29,4 +29,4 @@ User override: **every tier and every agent should use GPT-5.5**.
 1. All future teammate sessions should run with GPT-5.5.
 2. Do not downgrade by task type unless the user explicitly changes this override.
 3. If GPT-5.5 is unavailable in the runtime, stop and report the model-availability problem rather than silently using a fallback.
-4. Task prompts remain self-contained (see `WRIT_MASTER_BUILD_PLAN.md` §11) so restarting agents with GPT-5.5 loses no context.
+4. Task prompts remain self-contained (see `BUILD_PLAN.md` §11) so restarting agents with GPT-5.5 loses no context.
