@@ -1,5 +1,9 @@
 # writ.
 
+**Warranted Runtime for Intelligent Tools.**
+
+_A writ is authority to act — and the written record that it was authorized._
+
 ```
 $ npx writ run -- claude
   writ · 4 rules loaded from writ.yaml · ledger: .writ/ledger.jsonl
