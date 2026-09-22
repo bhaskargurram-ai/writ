@@ -1,0 +1,25 @@
+name: Feature request
+description: Propose an addition
+labels: [enhancement]
+body:
+  - type: textarea
+    id: problem
+    attributes:
+      label: The problem
+      placeholder: What can't you govern or prove today?
+    validations:
+      required: true
+  - type: textarea
+    id: proposal
+    attributes:
+      label: The proposal
+      placeholder: What should writ do? Which verdict/mode/backend does it touch?
+    validations:
+      required: true
+  - type: checkboxes
+    id: serves
+    attributes:
+      label: Who does this serve? (spec §3 — features serving neither are cut candidates)
+      options:
+        - label: The developer at 3am (TUI / local)
+        - label: The platform team (policy artifact / ledger / cluster)

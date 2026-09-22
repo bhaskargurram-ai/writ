@@ -1,0 +1,36 @@
+# writ.yaml for CI — headless posture (spec §14, Phase 2).
+# No human at the keyboard: `ask` fails closed on timeout or routes to an
+# out-of-band approver. Content capture stays off; the ledger + signed run
+# receipt are the audit artifact.
+version: 1
+default: ask
+
+rules:
+  - id: block-destructive-shell
+    when: tool == "bash" and command matches "rm -rf|mkfs|dd if=|:\(\)\{"
+    verdict: deny
+    reason: "Destructive system command. Narrow the path and retry."
+
+  - id: protect-production-db
+    when: tool startswith "postgres" and query matches "(?i)(DROP|TRUNCATE|ALTER)"
+    verdict: ask
+    irreversible: true
+    timeout: 2m                       # short: CI minutes cost money
+
+  - id: egress-allowlist
+    when: tool == "http" and not url.host in hosts.allowed
+    verdict: deny
+    reason: "CI egress is allow-listed. Add the host to hosts.allowed with a justification comment."
+
+  - id: never-read-secrets
+    when: path matches "\\.env|id_rsa|\\.pem$|credentials$"
+    verdict: deny
+    reason: "Secrets are injected at dispatch; the agent never reads them."
+
+  - id: unverified-server-asks
+    when: server.trust == "unverified"
+    verdict: ask
+    reason: "This MCP server has no trust verdict from the scanner."
+
+hosts:
+  allowed: [api.github.com, registry.npmjs.org, crates.io]

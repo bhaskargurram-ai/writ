@@ -1,0 +1,113 @@
+name: release
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+  id-token: write        # Sigstore keyless signing + provenance
+  attestations: write
+  packages: write
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo test --workspace
+
+  build:
+    needs: test
+    strategy:
+      matrix:
+        include:
+          - { target: x86_64-unknown-linux-gnu, os: ubuntu-latest }
+          - { target: aarch64-unknown-linux-gnu, os: ubuntu-latest }
+          - { target: x86_64-unknown-linux-musl, os: ubuntu-latest }
+          - { target: x86_64-apple-darwin, os: macos-latest }
+          - { target: aarch64-apple-darwin, os: macos-latest }
+          - { target: x86_64-pc-windows-msvc, os: windows-latest }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - name: build static binary
+        run: cargo build --release -p writ-cli --target ${{ matrix.target }}
+      - name: package
+        shell: bash
+        run: |
+          mkdir -p dist
+          BIN="target/${{ matrix.target }}/release/writ"
+          [ -f "$BIN.exe" ] && BIN="$BIN.exe"
+          cp "$BIN" "dist/writ-${{ matrix.target }}${BIN##*.exe}"
+          cd dist && sha256sum writ-* > ../checksums-${{ matrix.target }}.txt || true
+      - uses: actions/upload-artifact@v4
+        with:
+          name: writ-${{ matrix.target }}
+          path: |
+            dist/
+            checksums-${{ matrix.target }}.txt
+
+  sbom:
+    needs: test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: CycloneDX SBOM
+        run: |
+          cargo install cargo-cyclonedx --locked
+          cargo cyclonedx --format json --all
+          cp target/writ-cli_cdx.json sbom-cyclonedx.json || find target -name '*cdx*.json' -exec cp {} sbom-cyclonedx.json \;
+      - name: SPDX SBOM (syft)
+        uses: anchore/sbom-action@v0
+        with:
+          format: spdx-json
+          output-file: sbom-spdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: sbom-*.json
+
+  release:
+    needs: [build, sbom]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: writ-*
+          merge-multiple: true
+          path: dist
+      - uses: actions/download-artifact@v4
+        with:
+          name: sbom
+          path: sbom
+      - name: checksums
+        run: cd dist && sha256sum * > ../checksums.txt
+      - name: cosign keyless sign
+        uses: sigstore/cosign-installer@v3
+      - name: sign artifacts
+        run: |
+          cd dist
+          for f in *; do cosign sign-blob --yes --bundle "$f.cosign-bundle" "$f"; done
+          cd .. && cosign sign-blob --yes --bundle checksums.txt.cosign-bundle checksums.txt
+      - name: build provenance
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: dist/*
+      - name: GitHub Release
+        uses: softprops/action-gh-release@v2
+        with:
+          generate_release_notes: true
+          files: |
+            dist/*
+            checksums.txt
+            checksums.txt.cosign-bundle
+            sbom/*
+
+# Version-pinning policy: actions are pinned by maintainer review at release
+# time; Dependabot (.github/dependabot.yml) keeps them current.

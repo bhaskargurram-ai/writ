@@ -1,0 +1,28 @@
+name: Bug report
+description: Something writ did that it should not, or failed to do
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened
+      placeholder: Command run, expected, actual.
+    validations:
+      required: true
+  - type: textarea
+    id: repro
+    attributes:
+      label: Minimal reproduction
+      placeholder: "writ.yaml + exact command. If ledger-related, include `writ verify` output."
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: writ version + OS
+      placeholder: "writ 0.1.0, macOS arm64"
+    validations:
+      required: true
+  - type: markdown
+    attributes:
+      value: "**Security issue?** Do not file it here — see SECURITY.md for private reporting."

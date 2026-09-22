@@ -1,4 +1,32 @@
 id: pii-redaction
 version: 0.1.0
-description: Community policy pack (Wave 3; rules land with agent A15).
-rules: []
+description: Redact common PII and secret shapes from tool results before they re-enter model context.
+rules:
+  - id: redact-emails
+    when: tool startswith "crm" or tool startswith "http" or tool startswith "fs"
+    verdict: redact
+    reason: "Email addresses are masked before results re-enter model context."
+    patterns:
+      - "[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"
+
+  - id: redact-aws-keys
+    when: tool startswith "fs" or tool startswith "bash" or tool == "http"
+    verdict: redact
+    reason: "AWS-style access keys are masked."
+    patterns:
+      - "AKIA[0-9A-Z]{16}"
+      - "aws_secret_access_key.{0,20}"
+
+  - id: redact-private-keys
+    when: mode == "mcp" or mode == "sdkhook"
+    verdict: redact
+    reason: "Private key material is masked."
+    patterns:
+      - "-----BEGIN [A-Z ]*PRIVATE KEY-----"
+
+  - id: redact-ssn-like
+    when: tool startswith "crm" or tool startswith "postgres"
+    verdict: redact
+    reason: "SSN-shaped numbers are masked."
+    patterns:
+      - "\\b\\d{3}-\\d{2}-\\d{4}\\b"

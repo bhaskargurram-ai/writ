@@ -1,4 +1,28 @@
 id: terraform-safety
 version: 0.1.0
-description: Community policy pack (Wave 3; rules land with agent A15).
-rules: []
+description: Human gates and hard blocks for Terraform operations against real infrastructure.
+rules:
+  - id: tf-destroy-asks
+    when: tool == "bash" and command contains "terraform destroy"
+    verdict: ask
+    reason: "terraform destroy tears down real infrastructure. Review the plan output first."
+    irreversible: true
+    timeout: 10m
+
+  - id: tf-apply-prod-asks
+    when: tool == "bash" and command matches "terraform apply" and command contains "-auto-approve"
+    verdict: ask
+    reason: "Unattended apply (-auto-approve) on shared state. Confirm the plan was reviewed."
+    irreversible: true
+    timeout: 10m
+
+  - id: tf-state-rm-asks
+    when: tool == "bash" and command contains "terraform state rm"
+    verdict: ask
+    reason: "Removing state orphans real resources — they keep running but Terraform stops tracking them."
+    irreversible: true
+
+  - id: tf-force-unlock-denied
+    when: tool == "bash" and command contains "force-unlock"
+    verdict: deny
+    reason: "force-unlock can corrupt state when another run is genuinely active. Investigate the lock holder first."

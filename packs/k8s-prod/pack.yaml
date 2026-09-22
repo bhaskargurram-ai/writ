@@ -1,4 +1,30 @@
 id: k8s-prod
 version: 0.1.0
-description: Community policy pack (Wave 3; rules land with agent A15).
-rules: []
+description: Guardrails for kubectl against production clusters.
+rules:
+  - id: k8s-delete-ns-denied
+    when: tool == "bash" and command matches "kubectl delete (ns|namespace)"
+    verdict: deny
+    reason: "Deleting a namespace deletes everything in it. Use targeted deletes with a human in the loop."
+
+  - id: k8s-prod-delete-asks
+    when: tool == "bash" and command contains "kubectl delete" and command matches "prod|production"
+    verdict: ask
+    reason: "Deleting prod workloads. Confirm the resource, the context, and the blast radius."
+    irreversible: true
+    timeout: 10m
+
+  - id: k8s-prod-rollout-asks
+    when: tool == "bash" and command contains "kubectl rollout restart" and command matches "prod|production"
+    verdict: ask
+    reason: "Restarting prod workloads causes a rolling disruption window."
+
+  - id: k8s-exec-prod-asks
+    when: tool == "bash" and command contains "kubectl exec" and command matches "prod|production"
+    verdict: ask
+    reason: "Interactive shell into a prod pod — every keystroke becomes part of the audit record."
+
+  - id: k8s-drain-asks
+    when: tool == "bash" and command contains "kubectl drain"
+    verdict: ask
+    reason: "Draining a node evicts all pods. Confirm capacity headroom first."

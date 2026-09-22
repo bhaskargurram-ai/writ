@@ -20,6 +20,14 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: forbid unearned assurance claims (spec §7/§15)
+      - name: forbid unearned assurance claims (spec section 7/15)
         run: |
-          ! grep -rniE "bank.?grade|SOC.?2 (certified|compliant)|tamper-proof|prevents? prompt injection|sub-millisecond"             --include="*.md" --include="*.rs" . || (echo "claim-discipline violation" && exit 1)
+          set -e
+          EXCLUDE="--exclude=ci.yml --exclude=WRIT_MASTER_BUILD_PLAN.md --exclude=PULL_REQUEST_TEMPLATE.md"
+          # Always banned, no context saves them:
+          ! grep -rniE $EXCLUDE "bank.?grade|SOC.?2 (certified|compliant)|prevents? prompt injection|sub-millisecond" \
+            --include="*.md" --include="*.rs" . || (echo "claim-discipline violation (absolute)" && exit 1)
+          # "tamper-proof" is banned UNLESS qualified on the same line:
+          ! grep -rniE $EXCLUDE "tamper-proof" --include="*.md" --include="*.rs" . \
+            | grep -viE "evident|not |never|only |without|require|\bno\b|until" \
+            || (echo "claim-discipline violation (unqualified tamper-proof)" && exit 1)

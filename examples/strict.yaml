@@ -1,0 +1,22 @@
+# writ.yaml — strict posture demonstration.
+# default: deny means EVERYTHING not explicitly allowed is refused.
+# This will block most real work; it exists to demonstrate the posture and
+# as a starting point for high-assurance environments. Expect to grow the
+# allow rules deliberately.
+version: 1
+default: deny
+
+rules:
+  - id: allow-reads
+    when: tool == "fs.read" or tool startswith "git.status" or tool == "bash" and command startswith "ls"
+    verdict: allow
+    reason: "Read-only operations are permitted."
+
+  - id: allow-tests
+    when: tool == "bash" and command matches "^(cargo|npm|pytest|go) test"
+    verdict: allow
+    reason: "Test runners are permitted."
+
+  # Everything else — every write, every network call, every exec —
+  # is denied with the default and recorded. Tighten by adding allows,
+  # not by loosening the default.

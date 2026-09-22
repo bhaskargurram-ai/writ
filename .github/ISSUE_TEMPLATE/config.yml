@@ -1,0 +1,8 @@
+blank_issues_enabled: false
+contact_links:
+  - name: Security vulnerability
+    url: https://github.com/bhaskargurram-ai/writ/security/advisories/new
+    about: Private reporting only — never a public issue. See docs/SECURITY.md.
+  - name: Policy packs
+    url: https://github.com/bhaskargurram-ai/writ/tree/main/packs
+    about: Contributing a pack is a single PR — see CONTRIBUTING.md.

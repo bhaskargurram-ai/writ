@@ -1,0 +1,69 @@
+name: writ
+description: >-
+  Govern an agent run in CI: enforce writ.yaml headless, fail closed on
+  unanswered asks, and publish the ledger + signed run receipt as artifacts.
+author: writai
+branding:
+  icon: shield
+  color: blue
+
+inputs:
+  policy:
+    description: Path to the policy file, committed to the repo.
+    default: writ.yaml
+  command:
+    description: The agent command to wrap (e.g. "claude -p 'fix the tests'").
+    required: true
+  yolo:
+    description: Flip the policy default to allow. Dangerous; for demos only.
+    default: "false"
+  approver-webhook:
+    description: >-
+      Out-of-band approver URL for `ask` verdicts (POSTs the AskView, expects
+      {"decision": "allow"|"deny"}). Without it, asks fail closed on timeout.
+    required: false
+  ledger-path:
+    description: Where the run's ledger is written.
+    default: .writ/ledger.jsonl
+
+runs:
+  using: composite
+  steps:
+    - name: Install writ
+      shell: bash
+      run: |
+        curl -fsSL https://raw.githubusercontent.com/bhaskargurram-ai/writ/main/scripts/install.sh | sh
+        echo "$HOME/.writ/bin" >> "$GITHUB_PATH"
+
+    - name: Verify install (cosign)
+      shell: bash
+      run: |
+        cosign verify-blob --bundle "$HOME/.writ/bin/writ.cosign-bundle" \
+          --certificate-identity-regexp "github.com/bhaskargurram-ai/writ" \
+          --certificate-oidc-issuer https://token.actions.githubusercontent.com \
+          "$HOME/.writ/bin/writ" || echo "::warning::unsigned local build (pre-release)"
+
+    - name: Governed run (headless, fail-closed)
+      shell: bash
+      env:
+        WRIT_HEADLESS: "1"
+        WRIT_APPROVER_WEBHOOK: ${{ inputs.approver-webhook }}
+      run: |
+        FLAGS=""
+        [ "${{ inputs.yolo }}" = "true" ] && FLAGS="--yolo"
+        writ run $FLAGS --policy "${{ inputs.policy }}" --ledger "${{ inputs.ledger-path }}" -- ${{ inputs.command }}
+
+    - name: Verify the ledger
+      if: always()
+      shell: bash
+      run: writ verify --ledger "${{ inputs.ledger-path }}"
+
+    - name: Upload evidence
+      if: always()
+      uses: actions/upload-artifact@v4
+      with:
+        name: writ-evidence-${{ github.run_id }}
+        path: |
+          ${{ inputs.ledger-path }}
+          .writ/receipt*.json
+        retention-days: 90
