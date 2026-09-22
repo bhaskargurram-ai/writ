@@ -66,7 +66,10 @@ impl PolicyEngine for NativePolicyEngine {
 
 /// The policy default, always carrying rule_id + human reason for Deny/Ask
 /// (spec §12: never "denied by policy").
-fn default_verdict(default: DefaultVerdict) -> Verdict {
+///
+/// Public so sibling engine crates (Rego, Cedar) construct verdicts
+/// byte-identical to the native engine (Contract 2 parity).
+pub fn default_verdict(default: DefaultVerdict) -> Verdict {
     match default {
         DefaultVerdict::Allow => Verdict::Allow { rule_id: Some("default".to_string()) },
         DefaultVerdict::Ask => Verdict::Ask {
@@ -84,7 +87,10 @@ fn default_verdict(default: DefaultVerdict) -> Verdict {
     }
 }
 
-fn verdict_for(rule: &CompiledRule, ctx: &ToolCallContext) -> Verdict {
+/// Canonical verdict construction for a matched rule. Public so sibling
+/// engine crates (Rego, Cedar) stay verdict-identical to the native engine
+/// (Contract 2 parity).
+pub fn verdict_for(rule: &CompiledRule, ctx: &ToolCallContext) -> Verdict {
     let location = rule.line.map(|l| format!("{}:{}", POLICY_FILE_NAME, l));
     match rule.verdict {
         RuleVerdict::Allow => Verdict::Allow {
@@ -139,7 +145,9 @@ fn ask_diff(rule: &CompiledRule, ctx: &ToolCallContext) -> String {
 // Evaluation
 // ---------------------------------------------------------------------------
 
-fn eval_expr(expr: &Expr, ctx: &ToolCallContext) -> bool {
+/// Predicate evaluator over the shared rule AST. Public so sibling engine
+/// crates (Rego, Cedar) evaluate predicates identically (Contract 2 parity).
+pub fn eval_expr(expr: &Expr, ctx: &ToolCallContext) -> bool {
     match expr {
         Expr::Or(a, b) => eval_expr(a, ctx) || eval_expr(b, ctx),
         Expr::And(a, b) => eval_expr(a, ctx) && eval_expr(b, ctx),

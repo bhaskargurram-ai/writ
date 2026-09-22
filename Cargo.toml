@@ -10,14 +10,17 @@ members = [
     "crates/writ-otel",
     "crates/writ-tui",
     "crates/writ-cli",
+    "crates/writ-policy-rego",
+    "crates/writ-policy-cedar",
+    "crates/writ-sandbox-docker",
 ]
 
 [workspace.package]
 version = "0.1.0"
 edition = "2021"
 license = "Apache-2.0"
-repository = "https://github.com/writai/writ"
-homepage = "https://writ.dev"
+repository = "https://github.com/writ-agent/writ"
+homepage = "https://writ-bhaskar17.vercel.app"
 description = "Authorization and provenance for AI agents. One policy file, one tamper-evident ledger, any agent."
 
 [workspace.dependencies]
@@ -29,6 +32,9 @@ writ-sandbox = { path = "crates/writ-sandbox" }
 writ-replay = { path = "crates/writ-replay" }
 writ-otel = { path = "crates/writ-otel" }
 writ-tui = { path = "crates/writ-tui" }
+writ-policy-rego = { path = "crates/writ-policy-rego" }
+writ-policy-cedar = { path = "crates/writ-policy-cedar" }
+writ-sandbox-docker = { path = "crates/writ-sandbox-docker" }
 
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"

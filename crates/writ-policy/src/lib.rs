@@ -17,11 +17,11 @@
 
 #![forbid(unsafe_code)]
 
-mod ast;
+pub mod ast;
 mod engine;
 pub mod fixtures;
 mod parser;
-mod policy_file;
+pub mod policy_file;
 
 pub use engine::NativePolicyEngine;
 pub use fixtures::{

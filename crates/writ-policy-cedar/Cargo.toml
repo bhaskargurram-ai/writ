@@ -1,0 +1,18 @@
+[package]
+name = "writ-policy-cedar"
+description = "Cedar policy engine backend for writ: writ.yaml semantics compiled to Cedar policies, producing the shared verdict IR."
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+repository.workspace = true
+
+[dependencies]
+writ-core.workspace = true
+writ-policy.workspace = true
+serde_json.workspace = true
+
+# cedar-policy pulls stacker/psm, whose build scripts need a C compiler and
+# dlltool — unavailable on the windows-gnu reference host (ADR-006). Gated so
+# the workspace stays buildable there; CI's native runners compile it.
+[target.'cfg(not(all(windows, target_env = "gnu")))'.dependencies]
+cedar-policy = "4"
