@@ -26,7 +26,7 @@ jobs:
       # enforce the boundary: CI must prove enforcement on every OS.
       WRIT_SANDBOX_REQUIRE_ENFORCEMENT: '1'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -39,7 +39,7 @@ jobs:
     name: benches compile
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
         with:
@@ -52,7 +52,7 @@ jobs:
     name: licenses, advisories, sources
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: EmbarkStudios/cargo-deny-action@v2
         with:
           command: check advisories licenses sources
@@ -60,7 +60,7 @@ jobs:
   claim-discipline:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: forbid unearned assurance claims (spec section 7/15)
         run: python3 scripts/claim_lint.py
 
@@ -68,7 +68,7 @@ jobs:
     name: policy packs validate
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable
       - uses: Swatinem/rust-cache@v2
       - run: python3 -m pip install --quiet pyyaml
