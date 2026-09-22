@@ -19,9 +19,9 @@ Nothing has been tagged yet; everything below is on `main`.
 - **Claude Code integration**: `writ check --format claude-code` hooks and
   `writ integrate claude-code`. A writ `ask` becomes Claude Code's own
   permission prompt; every writ-side failure blocks the call (exit 2).
-- **`writ-sdk` Python package**: LangGraph, OpenAI Agents SDK and Claude
+- **`writ-sdk` Python package** ([PyPI](https://pypi.org/project/writ-sdk/), 0.1.0): LangGraph, OpenAI Agents SDK and Claude
   Agent SDK integrations plus `@writ_tool` for any callable.
-- **`@writ-agent/sdk` TypeScript package**: Claude Agent SDK hooks,
+- **`@writ-agent/sdk` TypeScript package** ([npm](https://www.npmjs.com/package/@writ-agent/sdk), 0.1.0): Claude Agent SDK hooks,
   `guard()` and `guardTools()`.
 - The JSONL ledger is safe for many concurrent writer processes (lock file,
   tip re-read from disk).

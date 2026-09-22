@@ -8,6 +8,8 @@ Your agent asks. Your policy decides. The ledger remembers.
 [![license](https://img.shields.io/badge/license-Apache--2.0-1f6feb)](LICENSE)
 [![rust](https://img.shields.io/badge/rust-stable-b7410e)](rust-toolchain.toml)
 [![status](https://img.shields.io/badge/status-pre--release-d29922)](#status)
+[![PyPI](https://img.shields.io/pypi/v/writ-sdk?label=pypi%20writ-sdk&color=4ec9a5)](https://pypi.org/project/writ-sdk/)
+[![npm](https://img.shields.io/npm/v/@writ-agent/sdk?label=npm%20%40writ-agent%2Fsdk&color=4ec9a5)](https://www.npmjs.com/package/@writ-agent/sdk)
 
 [Website](https://writ-omega.vercel.app) · [Docs](docs/README.md) · [Threat model](docs/THREAT_MODEL.md) · [Changelog](CHANGELOG.md)
 
@@ -45,9 +47,9 @@ is missing or errors, the tool does not run.
 | Agent | How | Per tool call |
 |---|---|---|
 | **Claude Code** | `writ integrate claude-code` (writes hooks into `.claude/settings.json`), or just `writ run -- claude` | yes — a writ `ask` becomes Claude Code's own permission prompt |
-| **LangGraph** | `writ_agent.langgraph.writ_tool_node(tools, writ)` | yes |
-| **OpenAI Agents SDK** | `writ_agent.openai_agents.guard_agent(agent, writ)` | yes |
-| **Claude Agent SDK** (Python / TypeScript) | `writ_agent.claude_agent_sdk.writ_hooks(writ)` / `createWritIntegration({ client })` | yes |
+| **LangGraph** | `writ_sdk.langgraph.writ_tool_node(tools, writ)` | yes |
+| **OpenAI Agents SDK** | `writ_sdk.openai_agents.guard_agent(agent, writ)` | yes |
+| **Claude Agent SDK** (Python / TypeScript) | `writ_sdk.claude_agent_sdk.writ_hooks(writ)` / `createWritIntegration({ client })` | yes |
 | **Any MCP client** | `writ proxy --mcp --server <name> -- <server cmd>` | every MCP tool call |
 | **Any other agent** | `writ run -- <agent>`: kernel-confined launch; or call `writ check` from its hook system | launch, plus hooks where the agent has them |
 
@@ -55,12 +57,15 @@ is missing or errors, the tool does not run.
 # Claude Code, per project
 writ integrate claude-code
 
-# Python (not yet on PyPI — install from the repo)
-pip install "writ-agent[langgraph] @ git+https://github.com/writ-agent/writ#subdirectory=adapters/python"
+# Python — extras: langgraph, openai-agents, claude-agent-sdk
+pip install "writ-sdk[langgraph]"
 
-# TypeScript (not yet on npm — build from the repo)
-git clone https://github.com/writ-agent/writ && cd writ/adapters/typescript && npm ci && npm run build
+# TypeScript / Node
+npm install @writ-agent/sdk
 ```
+
+Both packages drive the `writ` binary. Until prebuilt releases ship:
+`cargo install --git https://github.com/writ-agent/writ writ-cli`.
 
 Package docs: [Python](adapters/python/README.md) · [TypeScript](adapters/typescript/README.md).
 
@@ -231,7 +236,7 @@ its honest wave status live in
 | `crates/writ-replay`, `writ-otel` | Trajectory replay and OpenTelemetry spans |
 | `crates/writ-bench`, `fuzz/` | Criterion benches and cargo-fuzz targets (standalone crates) |
 | `packs/`, `examples/` | Policy packs and example `writ.yaml` files |
-| `adapters/python`, `adapters/typescript` | `writ-agent` (Python) and `@writ-agent/sdk` (TypeScript) integration packages |
+| `adapters/python`, `adapters/typescript` | `writ-sdk` (Python) and `@writ-agent/sdk` (TypeScript) integration packages |
 | `deploy/` | GitHub Action, Helm chart, air-gap and Terraform notes |
 | `docs/` | Policy reference, interfaces, threat model, ADRs — [index](docs/README.md) |
 | `site/` | The landing page |
