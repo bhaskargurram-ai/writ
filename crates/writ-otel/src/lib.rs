@@ -219,16 +219,30 @@ mod tests {
     fn builds_genai_span_tree_with_decision_event() {
         let trace = GenAiTrace::begin("claude-code");
         assert_eq!(trace.invoke_agent.attributes["gen_ai.operation.name"], "invoke_agent");
+        assert_eq!(trace.invoke_agent.attributes["gen_ai.agent.name"], "claude-code");
+        assert_eq!(trace.invoke_agent.attributes["writ.semconv.pin"], SEMCONV_PIN);
 
         let chat = trace.chat("claude-sonnet");
         assert_eq!(
             chat.parent_span_id.as_deref(),
             Some(trace.invoke_agent.span_id.as_str())
         );
+        assert_eq!(chat.trace_id, trace.trace_id);
+        assert_eq!(chat.attributes["gen_ai.operation.name"], "chat");
+        assert_eq!(chat.attributes["gen_ai.request.model"], "claude-sonnet");
 
         let mut tool = trace.execute_tool(&call());
+        assert_eq!(
+            tool.parent_span_id.as_deref(),
+            Some(trace.invoke_agent.span_id.as_str())
+        );
+        assert_eq!(tool.trace_id, trace.trace_id);
+        assert_eq!(tool.attributes["gen_ai.operation.name"], "execute_tool");
         assert_eq!(tool.attributes["gen_ai.tool.name"], "fs.read");
+        assert_eq!(tool.attributes["gen_ai.tool.call.id"], "c1");
+        assert_eq!(tool.attributes["writ.intercept.mode"], "mcp");
         assert_eq!(tool.attributes["mcp.server.name"], "filesystem");
+        assert_eq!(tool.attributes["mcp.transport"], "stdio");
         trace.record_decision(
             &mut tool,
             &Verdict::Deny {
@@ -238,7 +252,19 @@ mod tests {
             },
         );
         assert_eq!(tool.events[0].name, "writ.policy.decision");
+        assert_eq!(tool.events[0].attributes["writ.verdict"], "deny");
         assert_eq!(tool.events[0].attributes["writ.rule_id"], "never-read-secrets");
+    }
+
+    #[test]
+    fn decision_event_defaults_rule_id_when_verdict_has_none() {
+        let trace = GenAiTrace::begin("agent");
+        let mut tool = trace.execute_tool(&call());
+
+        trace.record_decision(&mut tool, &Verdict::Allow { rule_id: None });
+
+        assert_eq!(tool.events[0].attributes["writ.verdict"], "allow");
+        assert_eq!(tool.events[0].attributes["writ.rule_id"], "default");
     }
 
     #[test]
