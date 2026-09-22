@@ -1,0 +1,11 @@
+# Default owner for everything in the repository.
+* @bhaskargurram-ai
+
+# Security-sensitive paths: the evidence format, the policy decision path,
+# and the sandbox boundary. Changes here need an owner review.
+/crates/writ-core/     @bhaskargurram-ai
+/crates/writ-ledger/   @bhaskargurram-ai
+/crates/writ-policy*/  @bhaskargurram-ai
+/crates/writ-sandbox*/ @bhaskargurram-ai
+/docs/THREAT_MODEL.md  @bhaskargurram-ai
+/docs/SECURITY.md      @bhaskargurram-ai

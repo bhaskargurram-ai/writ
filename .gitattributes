@@ -1,0 +1,19 @@
+# Normalize line endings: LF in the repo and on checkout everywhere, so
+# Windows contributors don't produce CRLF diffs (rustfmt, hashes, fixtures).
+* text=auto eol=lf
+
+# PowerShell scripts keep CRLF for Windows PowerShell 5.1 compatibility.
+*.ps1 text eol=crlf
+
+# Binary assets.
+*.png binary
+*.jpg binary
+*.gif binary
+*.ico binary
+*.woff2 binary
+
+# Generated files: collapse in GitHub diffs.
+Cargo.lock linguist-generated=true
+**/Cargo.lock linguist-generated=true
+docs/assets/*.svg linguist-generated=true
+site/assets/*.svg linguist-generated=true
