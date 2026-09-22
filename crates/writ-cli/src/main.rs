@@ -6,6 +6,9 @@ use std::path::PathBuf;
 use clap::{Parser, Subcommand};
 
 mod cmds;
+mod hook;
+mod integrate;
+mod run;
 
 #[derive(Parser)]
 #[command(
@@ -40,9 +43,52 @@ enum Commands {
         /// Sandbox backend (writ doctor lists what this machine supports).
         #[arg(long, default_value = "local-os")]
         backend: String,
+        /// Network for the wrapped agent: `open` (it must reach its model
+        /// API; reported as not enforced) or `none` (kernel-enforced).
+        #[arg(long, value_enum, default_value_t = run::NetMode::Open)]
+        net: run::NetMode,
+        /// Extra writable path for the agent, beyond the workspace and its
+        /// profile's state dirs. Repeatable.
+        #[arg(long = "allow-write", value_name = "PATH")]
+        allow_write: Vec<PathBuf>,
+        /// Launch without the kernel boundary (launch supervision only).
+        #[arg(long)]
+        unconfined: bool,
+        /// Run even if the kernel can only partly enforce the boundary;
+        /// each gap is reported.
+        #[arg(long)]
+        best_effort: bool,
+        /// Do not wire writ's per-tool-call hooks into agents that support
+        /// them (e.g. Claude Code).
+        #[arg(long)]
+        no_hooks: bool,
         /// The agent command line, after `--`.
         #[arg(last = true, required = true)]
         cmd: Vec<String>,
+    },
+
+    /// Hook gateway for agent SDKs and agent hook systems (INTERFACES.md
+    /// Contract 6): decide one tool call, or serve JSON lines with --stdio.
+    Check {
+        /// Serve newline-delimited JSON requests until stdin closes.
+        #[arg(long)]
+        stdio: bool,
+        /// Wire format of stdin/stdout.
+        #[arg(long, value_enum, default_value_t = hook::Format::Writ)]
+        format: hook::Format,
+        /// What an `ask` verdict does without a terminal: fail closed, or
+        /// defer the human decision to the calling agent's own UI.
+        #[arg(long, value_enum, default_value_t = hook::AskMode::Deny)]
+        ask: hook::AskMode,
+    },
+
+    /// Wire writ into an agent's configuration: `writ integrate claude-code`
+    Integrate {
+        #[arg(value_enum)]
+        target: integrate::Target,
+        /// Print the configuration instead of writing it.
+        #[arg(long)]
+        print: bool,
     },
 
     /// Sit in front of an MCP server: `writ proxy --mcp --server github -- npx server`
@@ -120,8 +166,31 @@ fn main() -> anyhow::Result<()> {
 
     let cli = Cli::parse();
     match cli.command {
-        Commands::Run { backend, cmd } => {
-            cmds::run(&cli.policy, &cli.ledger, cli.yolo, &backend, &cmd)
+        Commands::Run {
+            backend,
+            net,
+            allow_write,
+            unconfined,
+            best_effort,
+            no_hooks,
+            cmd,
+        } => run::run(&run::RunArgs {
+            policy: cli.policy.clone(),
+            ledger: cli.ledger.clone(),
+            yolo: cli.yolo,
+            backend,
+            net,
+            allow_write,
+            unconfined,
+            best_effort,
+            no_hooks,
+            cmd,
+        }),
+        Commands::Check { stdio, format, ask } => {
+            hook::check(&cli.policy, &cli.ledger, cli.yolo, stdio, format, ask)
+        }
+        Commands::Integrate { target, print } => {
+            integrate::integrate(&cli.policy, &cli.ledger, target, print)
         }
         Commands::Proxy { mcp, server, cmd } => {
             cmds::proxy(&cli.policy, &cli.ledger, cli.yolo, mcp, &server, &cmd)

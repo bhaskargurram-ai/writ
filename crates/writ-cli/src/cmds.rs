@@ -5,7 +5,6 @@
 use std::cell::RefCell;
 use std::collections::{BTreeMap, HashMap};
 use std::path::{Path, PathBuf};
-use std::process::Stdio;
 use std::rc::Rc;
 
 use anyhow::{anyhow, bail, Context, Result};
@@ -18,11 +17,11 @@ use writ_core::{PolicyEngine, Timestamp};
 use writ_ledger::SessionSummary;
 use writ_mcp::{stdio_transport, CredentialStore, McpProxy, ProxyConfig, ProxyDecision};
 use writ_policy::NativePolicyEngine;
-use writ_tui::{render_call_line, render_rule_note, TuiApprover};
+use writ_tui::{render_call_line, render_rule_note};
 
 type DecisionMap = Rc<RefCell<HashMap<String, (LedgerRecord, Vec<String>)>>>;
 
-fn load_engine(policy_path: &Path, yolo: bool) -> Result<NativePolicyEngine> {
+pub(crate) fn load_engine(policy_path: &Path, yolo: bool) -> Result<NativePolicyEngine> {
     if !policy_path.exists() {
         bail!(
             "no policy file at {} — create one (see examples/writ.yaml) or pass --policy",
@@ -38,7 +37,7 @@ fn load_engine(policy_path: &Path, yolo: bool) -> Result<NativePolicyEngine> {
     NativePolicyEngine::from_source(&source).map_err(|e| anyhow!(e.to_string()))
 }
 
-fn banner(engine: &NativePolicyEngine, policy: &Path, ledger: &Path) {
+pub(crate) fn banner(engine: &NativePolicyEngine, policy: &Path, ledger: &Path) {
     eprintln!(
         "  writ · {} rules loaded from {} · ledger: {}",
         engine.rule_count(),
@@ -47,7 +46,7 @@ fn banner(engine: &NativePolicyEngine, policy: &Path, ledger: &Path) {
     );
 }
 
-fn make_call(
+pub(crate) fn make_call(
     session: &str,
     seq: u64,
     tool: &str,
@@ -74,62 +73,6 @@ fn make_call(
     }
 }
 
-/// `writ run -- <agent>`: governed process wrap (mode B, wave-1 scope:
-/// launch supervision — the wrapped process is itself a governed call, and
-/// kernel enforcement status is reported honestly by `writ doctor`).
-pub fn run(policy: &Path, ledger: &Path, yolo: bool, backend: &str, cmd: &[String]) -> Result<()> {
-    let engine = load_engine(policy, yolo)?;
-    banner(&engine, policy, ledger);
-    eprintln!("  mode: process wrap · backend: {backend} · per-tool coverage: run `writ doctor`");
-
-    let mut store = writ_ledger::open_store(ledger).map_err(|e| anyhow!(e.to_string()))?;
-    let session = format!("run-{}-{}", std::process::id(), Timestamp::now().epoch_ms());
-    let cmdline = cmd.join(" ");
-    let call = make_call(
-        &session,
-        0,
-        "process.exec",
-        serde_json::json!({ "command": cmdline }),
-        InterceptMode::ProcessWrap,
-    );
-
-    let outcome = {
-        let mut writer = LedgerWriter::new(&mut *store);
-        handle_call(&call, &engine, &mut writer, &TuiApprover::new())
-            .map_err(|e| anyhow!(e.to_string()))?
-    };
-    emit_span(ledger, &call, &outcome.verdict);
-
-    eprintln!(
-        "{}",
-        render_call_line("process.exec", &cmdline, &outcome.verdict)
-    );
-    if let Some(note) = render_rule_note(&outcome.verdict) {
-        eprintln!("{note}");
-    }
-    if !outcome.should_dispatch() {
-        std::process::exit(126); // denied
-    }
-
-    // Dispatch: interactive stdio inheritance; no content capture by default
-    // (spec §9). The execution record stores the exit status and a hash of
-    // what was captured — which is intentionally nothing.
-    let status = std::process::Command::new(&cmd[0])
-        .args(&cmd[1..])
-        .stdin(Stdio::inherit())
-        .stdout(Stdio::inherit())
-        .stderr(Stdio::inherit())
-        .status()
-        .with_context(|| format!("spawn {}", cmd[0]))?;
-    let code = status.code().unwrap_or(-1);
-
-    let mut writer = LedgerWriter::new(&mut *store);
-    writer
-        .record_execution(&outcome.record, backend, code, &[])
-        .map_err(|e| anyhow!(e.to_string()))?;
-    eprintln!("  writ · run complete · exit {code} · recorded");
-    std::process::exit(code);
-}
 /// `writ proxy --mcp --server <name> -- <cmd>`: real interception (mode A).
 /// stdout is the JSON-RPC channel, so all human output goes to stderr.
 /// `ask` fails closed here (headless) — interactive approval needs the TUI
@@ -539,7 +482,7 @@ pub fn report(ledger: &Path, out: &Path) -> Result<()> {
 
 /// Emit one GenAI-convention span for a governed call (spec §13).
 /// Spans land in spans.jsonl next to the ledger; OTLP export is wave 2.
-fn emit_span(ledger: &Path, call: &ToolCall, verdict: &Verdict) {
+pub(crate) fn emit_span(ledger: &Path, call: &ToolCall, verdict: &Verdict) {
     let path = ledger
         .parent()
         .unwrap_or_else(|| Path::new("."))

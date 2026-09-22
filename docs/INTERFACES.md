@@ -44,10 +44,79 @@ Backends: `local-os` (default), `docker`, `microsandbox`, `firecracker`/`e2b`, `
 
 `request(&ToolCall, &AskView) -> ApprovalOutcome`. Implementations: TUI (workstation), out-of-band (CI), RBAC (cluster). Timeout → `Deny` (fail closed). `ApprovalDecision = AllowOnce | AlwaysAllowRule | Deny | EditArgs(Value)`. `FailClosedApprover` ships in core for headless use.
 
+## Contract 6 — Hook gateway (`writ check`)
+
+The one integration primitive for agents that expose a pre-tool hook (SDK
+adapters, Claude Code hooks, any future agent). No daemon: writ runs either
+once per call or as a long-lived child process of the agent. Protocol
+version `v: 1`; changes are additive only.
+
+**Transport.**
+- One-shot: `writ check [--format writ|claude-code]` reads one request from
+  stdin, writes one response to stdout, exits. Exit code: `0` = dispatch,
+  `2` = do not dispatch, `1` = writ error (callers treat 1 as do-not-dispatch).
+- Long-lived: `writ check --stdio` reads newline-delimited JSON requests and
+  writes one newline-delimited JSON response per request, in order, until
+  stdin closes. stdout carries only protocol lines; diagnostics go to stderr.
+- `--policy`/`--ledger` resolve as for every command. Many `writ check`
+  processes may share one ledger concurrently (parallel tool calls); the
+  ledger store serializes appends across processes.
+
+**Requests** (`--format writ`, the adapter format):
+
+```json
+{"v":1,"id":"r1","op":"decide","call":{
+  "call_id":"toolu_01","session_id":"thread-42","tool":"bash",
+  "args":{"command":"ls"},
+  "caller":{"agent":"langgraph","agent_version":"0.3","user":"alice"},
+  "server":null,"trust":null}}
+{"v":1,"id":"r2","op":"resolve","ref":"<ref from decide>","approved":true,"approver":"human:alice"}
+{"v":1,"id":"r3","op":"complete","ref":"<ref>","ok":true,"exit":0,"output":"<tool result as text, optional>"}
+```
+
+- `call` fields mirror `ToolCall`; writ sets `mode = SdkHook` and
+  `captured_at`. `call_id` is optional (writ generates one); `caller` defaults
+  to `{"agent":"unknown"}`; `server`/`trust` use `ToolCall`'s JSON shapes.
+  Adapters must never put credentials in `args`.
+- `resolve` is only valid after a `decide` that returned `approval:"required"`.
+- `complete` records the execution. `output` is hashed into the execution
+  record and never stored; for a `redact` verdict writ returns the redacted
+  text, which is what the adapter must hand back to the model.
+
+**Responses:**
+
+```json
+{"v":1,"id":"r1","decision":"allow","dispatch":true,"rule_id":"read-only","ref":"..."}
+{"v":1,"id":"r1","decision":"deny","dispatch":false,"rule_id":"no-rm","reason":"...","location":"writ.yaml:12","ref":"..."}
+{"v":1,"id":"r1","decision":"ask","dispatch":false,"approval":"required","rule_id":"prod","reason":"<diff>","irreversible":true,"timeout_ms":60000,"ref":"..."}
+{"v":1,"id":"r1","decision":"redact","dispatch":true,"rule_id":"pii","patterns":["\d{3}-\d{2}-\d{4}"],"ref":"..."}
+{"v":1,"id":"r3","recorded":true,"output":"<redacted output, only for redact>"}
+{"v":1,"id":"r1","error":{"code":"bad_request","message":"..."}}
+```
+
+- `ref` is opaque; pass it back unchanged to `resolve`/`complete`.
+- `ask` handling is `--ask deny|defer` (default `deny`, fail-closed, since
+  `writ check` has no terminal). With `defer`, `ask` comes back with
+  `approval:"required"`; the adapter obtains a human decision through the
+  agent's own UI and sends `resolve`, whose response is a final decision
+  (`dispatch` true or false). An unresolved deferred ask never dispatches.
+- Any `error`, malformed line, timeout, or missing writ binary is
+  fail-closed in every adapter: the tool does not run.
+- Ledger semantics are unchanged (Contract 3): exactly one Decision record
+  per intercepted call, one Execution record per `complete`.
+
+**`--format claude-code`.** stdin is a Claude Code hook payload
+(`PreToolUse` → decide, `PostToolUse` → complete, keyed by `tool_use_id`
+within `session_id`); stdout is Claude Code's hook JSON. A writ `ask` maps to
+Claude Code's own permission prompt (`permissionDecision: "ask"`), `deny` to
+`"deny"` with the rule's reason, `allow`/`redact` to `"allow"`.
+`writ integrate claude-code` writes the hook entries into
+`.claude/settings.json` (project) without disturbing existing settings.
+
 ## Pipeline (`writ_core::pipeline`)
 
 `handle_call(call, policy, ledger, approver) -> DecisionOutcome` — evaluate → resolve ask via approver → write decision record → return. Dispatch (sandbox exec / MCP forwarding) happens in the caller AFTER `handle_call` returns and only when `outcome.should_dispatch()`. Execution completion → `record_execution(ledger, &decision_record, backend, exit, output)`.
 
 ## CLI surface (`writ-cli`)
 
-`writ run [--yolo] [--policy PATH] -- <agent cmd>` · `writ proxy --mcp` · `writ log` · `writ show <call-id>` · `writ verify [--ledger PATH]` · `writ replay <run-id>` · `writ policy test` · `writ policy add <pack>` · `writ doctor` · `writ report`. Ledger default path: `.writ/ledger.jsonl` (displayed as `ledger.db` once SQLite is enabled).
+`writ run [--yolo] [--policy PATH] [--net open|none] [--allow-write PATH]… [--unconfined] [--no-hooks] -- <agent cmd>` · `writ check [--stdio] [--format writ|claude-code] [--ask deny|defer]` · `writ integrate <claude-code>` · `writ proxy --mcp` · `writ log` · `writ show <call-id>` · `writ verify [--ledger PATH]` · `writ replay <run-id>` · `writ policy test` · `writ policy add <pack>` · `writ doctor` · `writ report`. Ledger default path: `.writ/ledger.jsonl` (displayed as `ledger.db` once SQLite is enabled).
