@@ -13,7 +13,6 @@ use writ_core::approver::FailClosedApprover;
 use writ_core::call::{CallerIdentity, InterceptMode, ToolCall};
 use writ_core::ledger::{LedgerRecord, LedgerStore, LedgerWriter};
 use writ_core::pipeline::handle_call;
-use writ_core::sandbox::SandboxBackend;
 use writ_core::verdict::Verdict;
 use writ_core::{PolicyEngine, Timestamp};
 use writ_ledger::{FileLedgerStore, SessionSummary};

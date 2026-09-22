@@ -6,6 +6,10 @@ edition.workspace = true
 license.workspace = true
 repository.workspace = true
 
+[[bin]]
+name = "writ"
+path = "src/main.rs"
+
 [dependencies]
 writ-core.workspace = true
 writ-policy.workspace = true

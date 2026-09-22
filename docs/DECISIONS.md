@@ -30,3 +30,18 @@ suite — the store is swappable, the evidence format is not.
 The reference build environment lacks MSVC Build Tools; the repo pins nothing —
 `rust-toolchain.toml` selects `stable` only. Release binaries are built in CI
 on native runners per platform (plan §3.8).
+
+## ADR-007: No chrono; own 100-line Timestamp
+The reference GNU toolchain's bundled dlltool cannot spawn an assembler, so
+any crate needing raw-dylib import libs (chrono→windows-link,
+windows-sys via clap-color/tracing-ansi, tempfile) fails to build here.
+Consequences: writ-core ships its own RFC 3339 `Timestamp` (fully tested);
+clap and tracing-subscriber run with color/ansi default features disabled;
+tests use a std-only temp-dir helper. CI on native runners may relax this.
+
+## ADR-008: Dependency-free TUI in wave 1
+The approval gate, call tree and cost meter are pure-std ANSI + line input
+(no ratatui/crossterm), keeping the binary statically linkable everywhere
+including this environment. A full-screen ratatui UI can layer over these
+primitives in wave 2. Rendering goes to stderr: in proxy mode stdout is the
+JSON-RPC protocol channel.
