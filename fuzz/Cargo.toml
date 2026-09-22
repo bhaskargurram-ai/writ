@@ -1,0 +1,43 @@
+[package]
+name = "writ-fuzz"
+version = "0.0.0"
+publish = false
+edition = "2021"
+
+# Standard cargo-fuzz layout: one crate, one [[bin]] per fuzz target, driven
+# by `cargo fuzz` (nightly toolchain + rust-src/llvm-tools-preview).
+[package.metadata]
+cargo-fuzz = true
+
+[dependencies]
+libfuzzer-sys = "0.4"
+writ-core = { path = "../crates/writ-core" }
+writ-policy = { path = "../crates/writ-policy" }
+writ-ledger = { path = "../crates/writ-ledger" }
+writ-mcp = { path = "../crates/writ-mcp" }
+serde_json = "1"
+
+[[bin]]
+name = "fuzz_policy_compile"
+path = "fuzz_targets/fuzz_policy_compile.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_ledger_record_decode"
+path = "fuzz_targets/fuzz_ledger_record_decode.rs"
+test = false
+doc = false
+bench = false
+
+[[bin]]
+name = "fuzz_mcp_codec"
+path = "fuzz_targets/fuzz_mcp_codec.rs"
+test = false
+doc = false
+bench = false
+
+# Standalone workspace on purpose: fuzz targets must never be built by the
+# root cargo workspace (libfuzzer needs the nightly toolchain).
+[workspace]
