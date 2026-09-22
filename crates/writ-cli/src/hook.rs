@@ -130,6 +130,10 @@ pub enum AskMode {
     Deny,
     /// Return `approval: "required"`; the agent's own UI asks the human.
     Defer,
+    /// Wait for a human decision on the `writ ui` Approvals screen; fail
+    /// closed on timeout or when no console answers. Until implemented this
+    /// behaves as `deny`.
+    Ui,
 }
 
 /// Protocol version this gateway speaks.
@@ -353,7 +357,7 @@ impl Gateway {
         // `--ask deny`: the headless fail-closed approver answers, and its
         // identity is recorded with the ask (as `handle_call` does).
         let approver = match (&verdict, self.ask) {
-            (Verdict::Ask { .. }, AskMode::Deny) => {
+            (Verdict::Ask { .. }, AskMode::Deny | AskMode::Ui) => {
                 let view = AskView::from_verdict(&verdict).expect("ask verdict");
                 let outcome = FailClosedApprover
                     .request(&call, &view)
@@ -559,7 +563,7 @@ impl Gateway {
                 irreversible,
                 location,
             } => match self.ask {
-                AskMode::Deny => {
+                AskMode::Deny | AskMode::Ui => {
                     let reason = format!(
                         "rule \"{rule_id}\" requires human approval; `writ check --ask deny` has no approver (fail closed)"
                     );
@@ -824,7 +828,7 @@ impl Gateway {
                     ),
                     EXIT_DISPATCH,
                 ),
-                AskMode::Deny => ClaudeOut::pre(
+                AskMode::Deny | AskMode::Ui => ClaudeOut::pre(
                     "deny",
                     &format!(
                         "writ denied this: rule \"{rule_id}\" requires human approval and none is available here (fail closed)"

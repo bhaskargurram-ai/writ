@@ -2048,6 +2048,13 @@ dependencies = [
 ]
 
 [[package]]
+name = "writ-receipts"
+version = "0.1.1"
+dependencies = [
+ "writ-core",
+]
+
+[[package]]
 name = "writ-replay"
 version = "0.1.1"
 dependencies = [
@@ -2085,6 +2092,13 @@ name = "writ-tui"
 version = "0.1.1"
 dependencies = [
  "serde_json",
+ "writ-core",
+]
+
+[[package]]
+name = "writ-wasm"
+version = "0.1.1"
+dependencies = [
  "writ-core",
 ]
 

@@ -8,7 +8,10 @@ use clap::{Parser, Subcommand};
 mod cmds;
 mod hook;
 mod integrate;
+mod mcp_http;
+mod receipt;
 mod run;
+mod ui;
 
 #[derive(Parser)]
 #[command(
@@ -98,9 +101,22 @@ enum Commands {
         /// Downstream server identity (used for policy + credentials).
         #[arg(long, required = true)]
         server: String,
-        /// Downstream server command line, after `--`.
-        #[arg(last = true, required = true)]
+        /// Streamable HTTP / SSE transport options (default transport: stdio).
+        #[command(flatten)]
+        http: mcp_http::HttpArgs,
+        /// Downstream server command line, after `--` (stdio transport).
+        #[arg(last = true)]
         cmd: Vec<String>,
+    },
+
+    /// Local web console: connect an agent, watch decisions live, approve
+    /// asks, edit and test the policy, try the sandbox.
+    Ui(ui::UiArgs),
+
+    /// Signed receipts over the ledger, and anchoring them externally.
+    Receipt {
+        #[command(subcommand)]
+        sub: receipt::ReceiptCmd,
     },
 
     /// What did my agent actually do?
@@ -192,9 +208,23 @@ fn main() -> anyhow::Result<()> {
         Commands::Integrate { target, print } => {
             integrate::integrate(&cli.policy, &cli.ledger, target, print)
         }
-        Commands::Proxy { mcp, server, cmd } => {
-            cmds::proxy(&cli.policy, &cli.ledger, cli.yolo, mcp, &server, &cmd)
+        Commands::Proxy {
+            mcp,
+            server,
+            http,
+            cmd,
+        } => {
+            if http.is_http() {
+                mcp_http::proxy_http(&cli.policy, &cli.ledger, cli.yolo, mcp, &server, &http)
+            } else {
+                if cmd.is_empty() {
+                    anyhow::bail!("stdio transport needs the downstream server command after `--`");
+                }
+                cmds::proxy(&cli.policy, &cli.ledger, cli.yolo, mcp, &server, &cmd)
+            }
         }
+        Commands::Ui(args) => ui::serve(&cli.policy, &cli.ledger, cli.yolo, &args),
+        Commands::Receipt { sub } => receipt::run(&cli.policy, &cli.ledger, &sub),
         Commands::Log => cmds::log(&cli.ledger),
         Commands::Show { call_id } => cmds::show(&cli.ledger, &call_id),
         Commands::Verify => cmds::verify(&cli.ledger),
