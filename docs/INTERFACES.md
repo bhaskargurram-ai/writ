@@ -30,8 +30,9 @@ Frozen. Additive-only changes under bumped `schema_version`. `writ verify` valid
 
 - Two-phase records: exactly one `Decision` record per intercepted call (even if execution never starts); one linked `Execution` record per dispatched call (`decision_index` links back). Records are never mutated.
 - `record_hash` = SHA-256 over the canonical payload (all fields except `record_hash`, serde_json struct order). `prev_hash` chains records; genesis = 64 zero hex chars.
-- `LedgerStore`: `append / tip / get / len / iter`. `append` must reject non-sequential index or wrong `prev_hash`.
-- Stores: `FileLedgerStore` (JSONL, default, everywhere) and `SqliteLedgerStore` (WAL mode, `sqlite` feature); Postgres+S3 in Wave 3. All pass `verify_chain`.
+- `LedgerStore`: `append / tip / get / len / iter`. `append` must reject a non-sequential index, a wrong `prev_hash`, or a `record_hash` that is not the record's own.
+- Stores: `FileLedgerStore` (JSONL, default, everywhere) and `SqliteLedgerStore` (WAL mode, `sqlite` feature); Postgres+S3 in Wave 3. All pass the same generic test suite and `verify_chain`. A SQLite row holds the exact JSONL line, so records and hashes are store-independent.
+- Store selection: `writ_ledger::open_store(path)` / `detect_store_kind(path)` — content first (SQLite header), then extension (`.db`, `.sqlite`, `.sqlite3`), failing closed on a mismatch or when the `sqlite` feature is off. `verify(path)`, `sessions(path)` and `find_by_call_id(path)` use it; `verify_sqlite(path)` checks a database too damaged to open as a store.
 - No content capture beyond call args by default; zero product telemetry.
 
 ## Contract 4 — `SandboxBackend` (`writ_core::sandbox`)

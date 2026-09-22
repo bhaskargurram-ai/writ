@@ -22,9 +22,11 @@ developers get ergonomics (spec §7).
 ## ADR-005: Default ledger store is JSONL; SQLite is a feature
 `FileLedgerStore` (append-only JSONL) works on every platform with zero native
 dependencies. `SqliteLedgerStore` (WAL mode, spec §9) ships behind the
-`sqlite` cargo feature and becomes the default workstation store once
-packaging includes a C toolchain. Both stores pass the same `verify_chain`
-suite — the store is swappable, the evidence format is not.
+`sqlite` cargo feature (writ-cli: `--features sqlite`, bundled SQLite, so a C
+compiler is needed at build time) and can become the default workstation
+store once release packaging builds with it. Both stores pass the same
+generic suite and `verify_chain`, and a SQLite row is the exact JSONL line —
+the store is swappable, the evidence format is not.
 
 ## ADR-006: Windows builds use the GNU toolchain in this environment
 **Status: superseded by ADR-009.**

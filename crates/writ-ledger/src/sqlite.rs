@@ -69,7 +69,7 @@ use std::borrow::Borrow;
 use std::cell::Cell;
 use std::collections::VecDeque;
 use std::path::{Path, PathBuf};
-use std::time::Duration;
+use std::time::{Duration, Instant};
 
 use rusqlite::{params, Connection, OpenFlags, OptionalExtension, TransactionBehavior};
 use writ_core::error::{Result, WritError};
@@ -127,6 +127,11 @@ fn sql_err(e: rusqlite::Error) -> WritError {
     WritError::Ledger(format!("sqlite: {e}"))
 }
 
+/// Whether a mapped error is SQLite's SQLITE_BUSY / SQLITE_LOCKED.
+fn is_busy(message: &str) -> bool {
+    message.contains("database is locked") || message.contains("database table is locked")
+}
+
 trait SqlResultExt<T> {
     fn sql(self) -> Result<T>;
 }
@@ -154,6 +159,23 @@ impl SqliteLedgerStore {
     /// ledger, or whose chain is broken, is a `WritError::Ledger`.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
+        // Opening takes locks that SQLite can refuse with SQLITE_BUSY without
+        // consulting the busy handler (WAL-index setup and recovery while
+        // another connection opens the same file). Retry those, bounded by
+        // the same budget writers get.
+        let deadline = Instant::now() + BUSY_TIMEOUT;
+        loop {
+            match Self::open_once(&path) {
+                Err(WritError::Ledger(m)) if is_busy(&m) && Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(10));
+                }
+                other => return other,
+            }
+        }
+    }
+
+    fn open_once(path: &Path) -> Result<Self> {
+        let path = path.to_path_buf();
         if let Some(parent) = path.parent() {
             if !parent.as_os_str().is_empty() {
                 std::fs::create_dir_all(parent)?;
@@ -167,9 +189,16 @@ impl SqliteLedgerStore {
         )
         .sql()?;
         conn.busy_timeout(BUSY_TIMEOUT).sql()?;
-        let mode: String = conn
-            .pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get(0))
+        // WAL is persistent in the file: only a new database needs the
+        // switch, which takes an exclusive lock.
+        let mut mode: String = conn
+            .pragma_query_value(None, "journal_mode", |r| r.get(0))
             .sql()?;
+        if !mode.eq_ignore_ascii_case("wal") {
+            mode = conn
+                .pragma_update_and_check(None, "journal_mode", "WAL", |r| r.get(0))
+                .sql()?;
+        }
         if !mode.eq_ignore_ascii_case("wal") {
             return Err(WritError::Ledger(format!(
                 "ledger {path:?}: SQLite refused WAL journal mode (got {mode:?})"
