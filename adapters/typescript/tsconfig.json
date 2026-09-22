@@ -1,0 +1,21 @@
+{
+  "extends": "./tsconfig.base.json",
+  "compilerOptions": {
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "noEmit": true,
+    "paths": {
+      "@writ-agent/sdk": [
+        "./src/index.ts"
+      ],
+      "@writ-agent/sdk/claude-agent-sdk": [
+        "./src/claude-agent-sdk.ts"
+      ]
+    }
+  },
+  "include": [
+    "src",
+    "test",
+    "examples"
+  ]
+}

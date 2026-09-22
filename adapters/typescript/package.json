@@ -1,0 +1,87 @@
+{
+  "name": "@writ-agent/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript/Node client for the writ hook gateway: policy-checked, ledger-recorded tool calls for AI agents (Claude Agent SDK hooks, generic tool wrappers).",
+  "license": "Apache-2.0",
+  "type": "module",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/writ-agent/writ.git",
+    "directory": "adapters/typescript"
+  },
+  "keywords": [
+    "writ",
+    "ai-agents",
+    "authorization",
+    "policy",
+    "audit-ledger",
+    "claude-agent-sdk",
+    "tool-calls"
+  ],
+  "engines": {
+    "node": ">=18"
+  },
+  "sideEffects": false,
+  "main": "./dist/cjs/index.js",
+  "module": "./dist/esm/index.js",
+  "types": "./dist/cjs/index.d.ts",
+  "exports": {
+    ".": {
+      "import": {
+        "types": "./dist/esm/index.d.ts",
+        "default": "./dist/esm/index.js"
+      },
+      "require": {
+        "types": "./dist/cjs/index.d.ts",
+        "default": "./dist/cjs/index.js"
+      }
+    },
+    "./claude-agent-sdk": {
+      "import": {
+        "types": "./dist/esm/claude-agent-sdk.d.ts",
+        "default": "./dist/esm/claude-agent-sdk.js"
+      },
+      "require": {
+        "types": "./dist/cjs/claude-agent-sdk.d.ts",
+        "default": "./dist/cjs/claude-agent-sdk.js"
+      }
+    },
+    "./package.json": "./package.json"
+  },
+  "typesVersions": {
+    "*": {
+      "claude-agent-sdk": [
+        "./dist/cjs/claude-agent-sdk.d.ts"
+      ]
+    }
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "clean": "node scripts/clean.mjs dist build-test",
+    "build": "node scripts/clean.mjs dist && tsc -p tsconfig.esm.json && tsc -p tsconfig.cjs.json && node scripts/postbuild.mjs",
+    "typecheck": "tsc -p tsconfig.json",
+    "lint": "node scripts/lint.mjs",
+    "build:test": "node scripts/clean.mjs build-test && tsc -p tsconfig.test.json",
+    "test": "npm run build:test && node --test --test-concurrency=1 \"build-test/test/*.test.js\"",
+    "test:e2e": "npm run build:test && node --test \"build-test/test/e2e.test.js\"",
+    "prepublishOnly": "npm run build && npm run typecheck && npm run lint && npm test"
+  },
+  "peerDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "^0.3.280"
+  },
+  "peerDependenciesMeta": {
+    "@anthropic-ai/claude-agent-sdk": {
+      "optional": true
+    }
+  },
+  "devDependencies": {
+    "@anthropic-ai/claude-agent-sdk": "0.3.280",
+    "@types/node": "^24.13.6",
+    "typescript": "~5.9",
+    "zod": "^4.6.5"
+  }
+}
