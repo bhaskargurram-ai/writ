@@ -1,0 +1,63 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 900 441" width="900" height="441" role="img" aria-label="writ log · writ verify">
+  <style>
+  .t{font-family:ui-monospace,SFMono-Regular,'SF Mono',Menlo,Consolas,'Liberation Mono','Courier New',monospace;font-size:14px;white-space:pre}
+  .r{opacity:0}
+  @media (prefers-reduced-motion:reduce){.r{opacity:1;animation:none!important}.cur{animation:none!important;opacity:1}}
+  @keyframes blink{0%,49%{opacity:1}50%,100%{opacity:0}}
+  .cur{animation:blink 1.06s step-end infinite}
+  @keyframes k0{0%,100%{opacity:1}}
+  .l0{animation:k0 9.40s infinite}
+  @keyframes k1{0%,6.373%{opacity:0}6.383%,100%{opacity:1}}
+  .l1{animation:k1 9.40s infinite}
+  @keyframes k2{0%,9.564%{opacity:0}9.574%,100%{opacity:1}}
+  .l2{animation:k2 9.40s infinite}
+  @keyframes k3{0%,11.692%{opacity:0}11.702%,100%{opacity:1}}
+  .l3{animation:k3 9.40s infinite}
+  @keyframes k4{0%,13.820%{opacity:0}13.830%,100%{opacity:1}}
+  .l4{animation:k4 9.40s infinite}
+  @keyframes k5{0%,15.947%{opacity:0}15.957%,100%{opacity:1}}
+  .l5{animation:k5 9.40s infinite}
+  @keyframes k6{0%,22.330%{opacity:0}22.340%,100%{opacity:1}}
+  .l6{animation:k6 9.40s infinite}
+  @keyframes k7{0%,26.586%{opacity:0}26.596%,100%{opacity:1}}
+  .l7{animation:k7 9.40s infinite}
+  @keyframes k8{0%,32.969%{opacity:0}32.979%,100%{opacity:1}}
+  .l8{animation:k8 9.40s infinite}
+  @keyframes k9{0%,40.416%{opacity:0}40.426%,100%{opacity:1}}
+  .l9{animation:k9 9.40s infinite}
+  @keyframes k10{0%,45.735%{opacity:0}45.745%,100%{opacity:1}}
+  .l10{animation:k10 9.40s infinite}
+  @keyframes k11{0%,56.373%{opacity:0}56.383%,100%{opacity:1}}
+  .l11{animation:k11 9.40s infinite}
+  @keyframes k12{0%,62.756%{opacity:0}62.766%,100%{opacity:1}}
+  .l12{animation:k12 9.40s infinite}
+  @keyframes k13{0%,65.947%{opacity:0}65.957%,100%{opacity:1}}
+  .l13{animation:k13 9.40s infinite}
+  @keyframes k14{0%,74.458%{opacity:0}74.468%,100%{opacity:1}}
+  .l14{animation:k14 9.40s infinite}
+  </style>
+  <rect width="900" height="441" rx="10" fill="#0b0f14" stroke="#1f2731"/>
+  <rect width="900" height="38" rx="10" fill="#11161d"/>
+  <rect y="28" width="900" height="10" fill="#11161d"/>
+  <line x1="0" y1="38" x2="900" y2="38" stroke="#1f2731"/>
+  <circle cx="22" cy="19" r="5.5" fill="#ff5f56"/>
+  <circle cx="42" cy="19" r="5.5" fill="#ffbd2e"/>
+  <circle cx="62" cy="19" r="5.5" fill="#27c93f"/>
+  <text class="t" x="86" y="24" fill="#7d8590" font-size="12.5">writ log · writ verify</text>
+  <text class="t r l0"><tspan x="26" y="70" fill="#3fb950" font-weight="600">$ </tspan><tspan fill="#d7e0ea">writ log</tspan></text>
+  <text class="t r l1"><tspan x="26" y="93" fill="#d7e0ea">3 sessions · 47 records · 2 denied · 1 sessions with your approvals</tspan></text>
+  <text class="t r l2"><tspan x="26" y="116" fill="#7d8590">session                            records   denied  approved</tspan></text>
+  <text class="t r l3"><tspan x="26" y="139" fill="#d7e0ea">run-4821-1758543012                     31        2  yes</tspan></text>
+  <text class="t r l4"><tspan x="26" y="162" fill="#d7e0ea">proxy-github-1758546640                 11        0  -</tspan></text>
+  <text class="t r l5"><tspan x="26" y="185" fill="#d7e0ea">ci-pr-2291                               5        0  -</tspan></text>
+  <text class="t r l6"><tspan x="26" y="208" fill="#d7e0ea"></tspan></text>
+  <text class="t r l7"><tspan x="26" y="231" fill="#3fb950" font-weight="600">$ </tspan><tspan fill="#d7e0ea">writ verify</tspan></text>
+  <text class="t r l8"><tspan x="26" y="254" fill="#3fb950">chain intact · 47 records · no gaps</tspan></text>
+  <text class="t r l9"><tspan x="26" y="277" fill="#d7e0ea"></tspan></text>
+  <text class="t r l10"><tspan x="26" y="300" fill="#3fb950" font-weight="600">$ </tspan><tspan fill="#d7e0ea">sed -i &#x27;12s/rm -rf/ls/&#x27; .writ/ledger.jsonl</tspan><tspan fill="#79838f">   # someone edits the evidence</tspan></text>
+  <text class="t r l11"><tspan x="26" y="323" fill="#3fb950" font-weight="600">$ </tspan><tspan fill="#d7e0ea">writ verify</tspan></text>
+  <text class="t r l12"><tspan x="26" y="346" fill="#f85149">chain BROKEN at record 12 · 11 records verified before the break</tspan></text>
+  <text class="t r l13"><tspan x="26" y="369" fill="#79838f">exit 1</tspan></text>
+  <text class="t r l14"><tspan x="26" y="392" fill="#3fb950" font-weight="600">$ </tspan><tspan fill="#d7e0ea"></tspan></text>
+  <rect class="cur" x="44.8" y="380" width="8" height="16" fill="#d7e0ea"/>
+</svg>

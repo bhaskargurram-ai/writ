@@ -1,130 +1,199 @@
-# writ.
+<div align="center">
 
-**Warranted Runtime for Intelligent Tools.**
+# writ
 
-_A writ is authority to act — and the written record that it was authorized._
+**Nothing runs without a writ.**
 
-```
-$ npx writ run -- claude
-  writ · 4 rules loaded from writ.yaml · ledger: .writ/ledger.jsonl
-  ✓ read    src/api/handlers.rs
-  ✓ bash    cargo test --lib
-  ⚠ bash    rm -rf ./build/../../                          [ask]
-            rule: block-destructive-shell (writ.yaml:6)
-            → path resolves outside the workspace root
-            [a]llow  [d]eny  [e]dit  [!] always allow
-  ✗ http    POST https://paste.ee/api                      [denied]
-            rule: egress-allowlist (writ.yaml:18)
+Your agent asks. Your policy decides. The ledger remembers.
 
-$ writ log       # 47 calls · 2 denied · 1 approved by you
-$ writ verify    # chain intact · 47 records · no gaps
-```
+[![ci](https://github.com/bhaskargurram-ai/writ/actions/workflows/ci.yml/badge.svg)](https://github.com/bhaskargurram-ai/writ/actions/workflows/ci.yml)
+[![license](https://img.shields.io/badge/license-Apache--2.0-1f6feb)](LICENSE)
+[![rust](https://img.shields.io/badge/rust-stable-b7410e)](rust-toolchain.toml)
+[![status](https://img.shields.io/badge/status-pre--release-d29922)](#status)
 
-**Authorization and provenance for AI agents. One policy file, one tamper-evident ledger, any agent.**
-For developers who run agents with real credentials, and for the platform teams who answer for it.
+<img src="docs/assets/demo-gate.svg" alt="writ run -- claude: a session where two calls are allowed, one is redacted, one waits for a human and is denied, and one egress call is refused with its rule and reason" width="900">
 
-## Install and run
+</div>
+
+A writ is authority to act, and the written record that it was authorized. That is
+the product: every tool call an AI agent makes is checked against one policy file
+before it runs, and written to one hash-chained ledger after.
+
+For developers who hand agents real credentials, and for the platform teams who
+answer for what those agents did.
+
+## Install
 
 ```bash
-# from source (prebuilt binaries + brew/npx/curl-sh land with the release pipeline)
-cargo install --path crates/writ-cli
-
-writ run -- claude        # wrap your agent, policy enforced
+cargo install --path crates/writ-cli      # prebuilt binaries, brew, npx and curl|sh
+                                          # land with the release pipeline
+cp examples/writ.yaml writ.yaml
+writ run -- claude
 ```
 
-## The policy that produced the demo
+No daemon, no images, no account. The default backend is the host OS, and the
+first run creates `.writ/ledger.jsonl` next to your policy.
+
+## The policy that produced that session
+
+`writ.yaml` is the whole surface. Four verdicts, first match wins, unmatched
+calls hit `default`.
 
 ```yaml
 version: 1
-default: ask                          # fail-closed. --yolo flips this to allow.
+default: ask                          # --yolo flips this to allow. Nothing else does.
+
 rules:
   - id: block-destructive-shell
     when: tool == "bash" and command matches "rm -rf|mkfs|dd if=|:\(\)\{"
     verdict: deny
     reason: "Destructive system command. Narrow the path and retry."
+
   - id: protect-production-db
     when: tool startswith "postgres" and query matches "(?i)(DROP|TRUNCATE|ALTER)"
     verdict: ask
-    irreversible: true
+    irreversible: true                # excluded from automated replay
     timeout: 5m
+
   - id: egress-allowlist
     when: tool == "http" and not url.host in hosts.allowed
     verdict: deny
-  - id: never-read-secrets
-    when: path matches "\\.env|id_rsa|\\.pem$|credentials$"
-    verdict: deny
-    reason: "Secrets are masked from the agent by design."
+
+  - id: mask-pii
+    when: tool startswith "postgres"
+    verdict: redact
+    patterns: ["[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"]
+
 hosts:
   allowed: [api.github.com, registry.npmjs.org, "*.internal.acme.com"]
 ```
 
+A denial is not a dead end. The agent receives the rule id, the human reason and
+the `writ.yaml:6` that produced it, so it can correct itself instead of retrying
+blind. The file lives in your repo, so the policy travels with the code and
+reviews like code.
+
+Start from a pack instead: `writ policy add terraform-safety` · `k8s-prod` ·
+`pii-redaction`.
+
+## The part that survives the session
+
+Logs are what an application chose to write. A ledger is evidence: every call,
+its verdict, the rule that decided it, who approved it, and the hash of the
+record before it.
+
+<div align="center">
+<img src="docs/assets/demo-verify.svg" alt="writ log lists three sessions and 47 records; writ verify reports the chain intact, then reports a broken chain at record 12 after a line of the ledger is edited" width="900">
+</div>
+
+Editing one line breaks the chain from that record onward, and `writ verify`
+names the record it broke at. Nothing is captured beyond metadata and hashes
+unless you turn content capture on, and Writ sends nothing anywhere — there is no
+telemetry to opt out of.
+
 ## How it works
 
 ```
-your agent (unchanged)  — Claude Code · Codex · LangGraph · your own loop
-        │ tool call intercepted
-        ▼
-┌─ WRIT ─────────────────────────────────────────────┐
-│  1. INTERCEPT   mcp proxy │ process wrap │ sdk hook │
-│  2. DECIDE      writ.yaml → allow · deny · ask · redact │
-│  3. RECORD      hash-chained ledger + OTel span     │
-└─────────┼──────────────────────────────────────────┘
-          │ approved calls only
+your agent, unchanged     Claude Code · Codex · LangGraph · your own loop
+         │
+         │  tool call intercepted
+         ▼
+┌─ writ ──────────────────────────────────────────────────────┐
+│  1  INTERCEPT   mcp proxy  ·  process wrap  ·  sdk hook      │
+│  2  DECIDE      writ.yaml → allow · deny · ask · redact      │
+│  3  RECORD      hash-chained ledger  +  OTel GenAI span      │
+└─────────┬───────────────────────────────────────────────────┘
+          │  approved calls only
           ▼
-   sandbox backend (local-os · docker · …)  ·  MCP servers
+   sandbox backend (local-os · docker · …)   ·   MCP servers
 ```
 
-- `writ run -- <agent>` — wrap any agent process
-- `writ proxy --mcp --server <name> -- <server cmd>` — govern every MCP tool call
-- `writ log` / `writ show <call-id>` — what did my agent actually do
-- `writ verify` — check whether the local hash chain was edited (names the exact broken record it can verify)
-- `writ policy test` — unit-test your rules against recorded fixtures
-- `writ doctor` — honest coverage report: what is governed, what is blind
-- `writ report` — shareable single-file HTML run summary
+Writ wraps agents; it never asks you to adopt a runtime. The decision point is
+the same in all three interception modes, and so is the record.
 
-## What it does not do
+## Commands
 
-Writ governs **actions**, not reasoning. It does **not** detect or prevent
-prompt injection — it shrinks the blast radius (least privilege, egress
-allow-lists, a human gate on irreversible actions). The ledger is
-tamper-**evident**: local verification catches broken hashes or chain links, but
-anyone with write access can delete or rewrite the whole unanchored ledger; tamper-**proof** requires an external anchor
-(transparency-log receipts, on the roadmap). And in MCP-proxy-only mode the
-agent's own shell, file writes and direct HTTP are not governed — pair mode A
-with process wrap or SDK hooks. Full details:
-[docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
+| | |
+|---|---|
+| `writ run -- <agent>` | wrap an agent process under policy |
+| `writ proxy --mcp --server <name> -- <cmd>` | govern every call to an MCP server |
+| `writ log` · `writ show <call-id>` | what did my agent actually do last night |
+| `writ verify` | is this ledger still the one that was written |
+| `writ replay <session> --candidate <file>` | what would this policy have done to last week's run |
+| `writ policy test` | unit-test rules against recorded fixtures |
+| `writ doctor` | what is governed, and what is blind |
+| `writ report` | one self-contained HTML file to hand to someone else |
+
+## What writ does not do
+
+Writ governs **actions**, not reasoning.
+
+- **It does not stop prompt injection.** It shrinks the blast radius: least
+  privilege, egress allow-lists, and a human gate on irreversible calls.
+- **The ledger is tamper-evident, not tamper-proof.** Local verification catches
+  edited records and broken links; anyone with write access can still delete the
+  whole unanchored file. Transparency-log anchoring is on the roadmap and is the
+  only thing that closes that gap.
+- **MCP-proxy-only mode is partial coverage.** The agent's own shell, file writes
+  and direct HTTP go around it. Pair mode A with process wrap or SDK hooks, and
+  run `writ doctor`, which says this out loud rather than scoring itself.
+- **It does not reverse side effects.** A denied call never ran; an approved one
+  is yours.
+
+Full residual-risk table: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
 ## Compatibility
 
-| Layer | Supported | Status |
+| Layer | Today | Next |
 |---|---|---|
-| Agents | any via `run`/`proxy`; SDK hooks for LangGraph, OpenAI Agents SDK, Claude Agent SDK | hooks: wave 3 |
-| Sandbox backends | local-os (default) · docker · microsandbox · e2b/firecracker · k8s | local-os shipped; rest wave 2–3 |
-| Policy engines | native DSL (shipped) · Rego · Cedar | Rego/Cedar: wave 3, same verdict IR |
-| Transports | MCP stdio · SSE · streamable HTTP | stdio shipped; SSE/HTTP: wave 2 |
-| Platforms | macOS (arm64/x86_64) · Linux (glibc/musl) · Windows | build matrix in CI |
+| Agents | any, via `run` or `proxy` | SDK hooks: LangGraph, OpenAI Agents SDK, Claude Agent SDK |
+| Interception | MCP stdio proxy, process wrap | SSE + streamable HTTP, kernel-enforced wrap |
+| Policy engines | native DSL | Rego, Cedar — same verdict IR, same fixture corpus |
+| Sandbox backends | local-os | docker, microsandbox, e2b/firecracker, k8s |
+| Ledger stores | JSONL (every platform) | SQLite WAL, Postgres + object store, signed receipts |
+| Platforms | macOS, Linux, Windows — CI builds all three | six release targets |
 
 ## Compared to the neighbours, fairly
 
-- **Agent hooks** (vendor or the Leash/Fence/Cordon cluster): per-agent, per-machine, no portable policy, no verifiable record. Writ's policy file moves with the repo; the ledger survives the session.
-- **Sandboxes** (E2B, microsandbox, Dagger): excellent isolation, but no per-call decision point, no "ask me before merging to main", no evidence of what was attempted. Writ drives them; it doesn't replace them.
-- **MCP gateways** (Docker MCP Gateway, ContextForge): govern MCP traffic only — blind to the shell command the agent runs itself.
-- **Observability** (Langfuse, Phoenix, LangSmith): they watch; they cannot stop anything, and their logs are mutable application logs, not evidence.
+- **Agent hooks** (vendor hooks, the Leash/Fence/Cordon cluster) — per-agent and
+  per-machine, with no portable policy and no verifiable record. Writ's policy
+  moves with the repo; the ledger outlives the session.
+- **Sandboxes** (E2B, microsandbox, Dagger) — real isolation, but no per-call
+  decision point, no "ask me first", and no evidence of what was attempted. Writ
+  drives them rather than replacing them.
+- **MCP gateways** (Docker MCP Gateway, ContextForge) — govern MCP traffic, and
+  are blind to the shell command the agent runs itself.
+- **Observability** (Langfuse, Phoenix, LangSmith) — they watch. They cannot stop
+  anything, and their output is application logs, not evidence.
 
 ## Status
 
-Wave 1 (core spine) is implemented and tested: native policy engine (four
-verdicts, hot-reload, fixture tests), hash-chained ledger with verify, MCP
-stdio proxy with structured refusals and credential injection, local-os
-sandbox, approval-gate TUI, and the full CLI (`run · proxy · log · show ·
-verify · policy test/add · doctor · report`). See
-[WRIT_MASTER_BUILD_PLAN.md](WRIT_MASTER_BUILD_PLAN.md) for the full build
-program and honest wave status.
+Pre-release. The core spine is built and tested; the coverage and enterprise
+waves are in progress. Nine crates, one frozen record schema, 64 tests.
 
-## Links
+| Wave | Scope | State |
+|---|---|---|
+| 0 | Frozen contracts, threat model, ADRs, CI | done |
+| 1 | Native policy engine, ledger + verify, MCP stdio proxy, local-os sandbox, approval gate, CLI | done |
+| 2 | `doctor`, `report`, replay trio, `policy test`, OTel spans, release pipeline | done |
+| 2 | Kernel hardening (Landlock/seccomp · Seatbelt · restricted tokens), container backends, benchmarks | in progress |
+| 3 | Rego + Cedar, SDK hooks, Postgres ledger, anchored receipts, Helm/SSO/RBAC/SIEM | in progress |
+| 4 | Fuzzing, e2e matrix, published benchmarks, 1.0 | not started |
 
-- [Threat model](docs/THREAT_MODEL.md) · [Security policy](docs/SECURITY.md) · [Policy reference](docs/policy-reference.md)
-- [Interfaces (frozen contracts)](docs/INTERFACES.md) · [Decisions (ADRs)](docs/DECISIONS.md)
-- Contributing: DCO sign-off, no CLA · License: [Apache-2.0](LICENSE), permanently
+`writ doctor` is the authority on what your build actually enforces. The plan and
+its honest wave status live in
+[WRIT_MASTER_BUILD_PLAN.md](WRIT_MASTER_BUILD_PLAN.md).
 
-**Nothing runs without a writ.**
+## Contributing
+
+DCO sign-off, no CLA. Security-path changes (policy, ledger, MCP, sandbox) get an
+adversarial review before merge. See [CONTRIBUTING.md](CONTRIBUTING.md) and
+[docs/SECURITY.md](docs/SECURITY.md).
+
+[Threat model](docs/THREAT_MODEL.md) ·
+[Policy reference](docs/policy-reference.md) ·
+[Interfaces](docs/INTERFACES.md) ·
+[Decisions](docs/DECISIONS.md) ·
+[Brand](docs/BRAND.md)
+
+Apache-2.0, permanently. **WRIT — Warranted Runtime for Intelligent Tools.**

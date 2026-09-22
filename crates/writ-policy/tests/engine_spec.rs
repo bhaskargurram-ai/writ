@@ -26,7 +26,7 @@ fn engine() -> NativePolicyEngine {
 fn parses_examples_policy() {
     let e = engine();
     assert_eq!(e.name(), "native");
-    assert_eq!(e.rule_count(), 4);
+    assert_eq!(e.rule_count(), 5);
     let meta = e.meta();
     assert_eq!(meta.version, 1);
     assert_eq!(meta.default, DefaultVerdict::Ask);
@@ -93,7 +93,7 @@ fn disallowed_egress_denied_with_fallback_reason() {
                 !reason.trim().is_empty(),
                 "deny must carry a human reason even when the rule omits one"
             );
-            assert_eq!(location.as_deref(), Some("writ.yaml:17"));
+            assert_eq!(location.as_deref(), Some("writ.yaml:18"));
         }
         v => panic!("expected deny, got {:?}", v),
     }
@@ -131,7 +131,7 @@ fn env_read_denied() {
         } => {
             assert_eq!(rule_id, "never-read-secrets");
             assert_eq!(reason, "Secrets are masked from the agent by design.");
-            assert_eq!(location.as_deref(), Some("writ.yaml:21"));
+            assert_eq!(location.as_deref(), Some("writ.yaml:31"));
         }
         v => panic!("expected deny, got {:?}", v),
     }
