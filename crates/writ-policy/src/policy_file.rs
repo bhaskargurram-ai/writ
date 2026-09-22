@@ -283,26 +283,25 @@ pub fn compile(source: &str) -> Result<CompiledPolicy, String> {
         }
         id_lines.get(index).map(|(l, _)| *l)
     }
-
-    #[cfg(test)]
-    mod tests {
-        use super::*;
-
-        #[test]
-        fn parses_durations() {
-            assert_eq!(parse_duration("30s").unwrap(), 30_000);
-            assert_eq!(parse_duration("5m").unwrap(), 300_000);
-            assert_eq!(parse_duration("1h").unwrap(), 3_600_000);
-            assert_eq!(parse_duration("250ms").unwrap(), 250);
-            assert_eq!(parse_duration("500").unwrap(), 500);
-            assert!(parse_duration("5d").is_err());
-            assert!(parse_duration("soon").is_err());
-        }
-    }
-
     Ok(CompiledPolicy {
         version: raw.version,
         default: raw.default,
         rules,
     })
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn parses_durations() {
+        assert_eq!(parse_duration("30s").unwrap(), 30_000);
+        assert_eq!(parse_duration("5m").unwrap(), 300_000);
+        assert_eq!(parse_duration("1h").unwrap(), 3_600_000);
+        assert_eq!(parse_duration("250ms").unwrap(), 250);
+        assert_eq!(parse_duration("500").unwrap(), 500);
+        assert!(parse_duration("5d").is_err());
+        assert!(parse_duration("soon").is_err());
+    }
 }

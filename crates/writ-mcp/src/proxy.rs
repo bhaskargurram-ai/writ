@@ -34,6 +34,10 @@ pub struct ProxyConfig {
 /// JSON-RPC error code used for writ refusals (server-defined range).
 pub const WRIT_REFUSAL_CODE: i64 = -32043;
 
+type DecisionHook = Box<dyn FnMut(&ToolCall) -> ProxyDecision>;
+type ObserveHook = Box<dyn FnMut(&ToolCall, &Value)>;
+type TransformHook = Box<dyn FnMut(&ToolCall, Value) -> Value>;
+
 pub struct McpProxy<A: Transport, D: Transport> {
     /// Public so tests and the CLI can inspect traffic after `run`.
     pub agent_side: A,
@@ -43,21 +47,16 @@ pub struct McpProxy<A: Transport, D: Transport> {
     /// Auto-discovered downstream tool schemas (spec §11), populated on
     /// tools/list responses.
     pub tool_schemas: Vec<Value>,
-    decide: Box<dyn FnMut(&ToolCall) -> ProxyDecision>,
-    observe: Option<Box<dyn FnMut(&ToolCall, &Value)>>,
+    decide: DecisionHook,
+    observe: Option<ObserveHook>,
     /// Result transform applied BEFORE the result re-enters the agent's
     /// context (the `redact` verdict, spec §7). The observation hook sees the
     /// original; the agent sees the transform's output.
-    transform: Option<Box<dyn FnMut(&ToolCall, Value) -> Value>>,
+    transform: Option<TransformHook>,
 }
 
 impl<A: Transport, D: Transport> McpProxy<A, D> {
-    pub fn new(
-        agent_side: A,
-        downstream: D,
-        config: ProxyConfig,
-        decide: Box<dyn FnMut(&ToolCall) -> ProxyDecision>,
-    ) -> Self {
+    pub fn new(agent_side: A, downstream: D, config: ProxyConfig, decide: DecisionHook) -> Self {
         let session_id = format!("mcp-{}-{}", std::process::id(), Timestamp::now().epoch_ms());
         McpProxy {
             agent_side,
@@ -71,12 +70,12 @@ impl<A: Transport, D: Transport> McpProxy<A, D> {
         }
     }
 
-    pub fn on_result(&mut self, hook: Box<dyn FnMut(&ToolCall, &Value)>) {
+    pub fn on_result(&mut self, hook: ObserveHook) {
         self.observe = Some(hook);
     }
 
     /// Register the redaction transform (see field docs for ordering).
-    pub fn set_result_transform(&mut self, hook: Box<dyn FnMut(&ToolCall, Value) -> Value>) {
+    pub fn set_result_transform(&mut self, hook: TransformHook) {
         self.transform = Some(hook);
     }
 

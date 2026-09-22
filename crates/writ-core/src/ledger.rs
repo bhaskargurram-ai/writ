@@ -121,6 +121,9 @@ pub trait LedgerStore {
     fn tip(&self) -> Result<Option<LedgerRecord>>;
     fn get(&self, index: u64) -> Result<Option<LedgerRecord>>;
     fn len(&self) -> u64;
+    fn is_empty(&self) -> bool {
+        self.len() == 0
+    }
     /// Ascending by index.
     fn iter(&self) -> Box<dyn Iterator<Item = Result<LedgerRecord>> + '_>;
 }

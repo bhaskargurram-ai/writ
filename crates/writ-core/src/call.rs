@@ -9,10 +9,11 @@ use crate::time::Timestamp;
 use serde::{Deserialize, Serialize};
 
 /// How the call was captured.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Default)]
 #[serde(rename_all = "lowercase")]
 pub enum InterceptMode {
     /// Mode A: MCP proxy.
+    #[default]
     Mcp,
     /// Mode B: OS process wrap (Landlock/seccomp, Seatbelt, restricted tokens).
     ProcessWrap,
@@ -82,12 +83,6 @@ pub struct ToolCallContext {
     pub agent: String,
 }
 
-impl Default for InterceptMode {
-    fn default() -> Self {
-        InterceptMode::Mcp
-    }
-}
-
 impl ToolCallContext {
     /// Extract well-known fields from tool arguments. Conservative: unknown
     /// argument shapes simply leave fields `None`; rules referencing them
@@ -111,8 +106,7 @@ impl ToolCallContext {
             server: call.server.as_ref().map(|s| s.name.clone()),
             trust: call
                 .trust
-                .map(|t| serde_json::to_value(t).ok())
-                .flatten()
+                .and_then(|t| serde_json::to_value(t).ok())
                 .and_then(|v| v.as_str().map(|s| s.to_string())),
             mode: call.mode,
             agent: call.caller.agent.clone(),

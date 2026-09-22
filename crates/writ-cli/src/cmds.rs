@@ -20,6 +20,8 @@ use writ_mcp::{stdio_transport, CredentialStore, McpProxy, ProxyConfig, ProxyDec
 use writ_policy::NativePolicyEngine;
 use writ_tui::{render_call_line, render_rule_note, TuiApprover};
 
+type DecisionMap = Rc<RefCell<HashMap<String, (LedgerRecord, Vec<String>)>>>;
+
 fn load_engine(policy_path: &Path, yolo: bool) -> Result<NativePolicyEngine> {
     if !policy_path.exists() {
         bail!(
@@ -164,8 +166,7 @@ pub fn proxy(
         FileLedgerStore::open(ledger).map_err(|e| anyhow!(e.to_string()))?,
     ));
     // call_id → (decision record, redact patterns from the verdict)
-    let decisions: Rc<RefCell<HashMap<String, (LedgerRecord, Vec<String>)>>> =
-        Rc::new(RefCell::new(HashMap::new()));
+    let decisions: DecisionMap = Rc::new(RefCell::new(HashMap::new()));
 
     // Decision hook: full pipeline per call — evaluate, approve-or-fail-closed,
     // record. Forward only on allow/redact.
@@ -562,7 +563,7 @@ fn emit_span(ledger: &Path, call: &ToolCall, verdict: &Verdict) {
         .and_then(|f| {
             writ_otel::JsonLinesExporter::new(f)
                 .export(&root)
-                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+                .map_err(|e| std::io::Error::other(e.to_string()))
         });
 }
 

@@ -22,41 +22,45 @@ fn resp(id: u64, result: serde_json::Value) -> JsonRpcMessage {
 
 #[test]
 fn end_to_end_forward_refuse_and_discovery() {
-    let mut agent = MemoryTransport::default();
-    agent.incoming = VecDeque::from(vec![
-        req(
-            1,
-            "initialize",
-            Some(json!({"protocolVersion": "2025-06-18"})),
-        ),
-        req(2, "tools/list", None),
-        req(
-            3,
-            "tools/call",
-            Some(json!({"name": "fs.read", "arguments": {"path": "src/main.rs"}})),
-        ),
-        req(
-            4,
-            "tools/call",
-            Some(json!({"name": "db.drop", "arguments": {}})),
-        ),
-    ]);
+    let agent = MemoryTransport {
+        incoming: VecDeque::from(vec![
+            req(
+                1,
+                "initialize",
+                Some(json!({"protocolVersion": "2025-06-18"})),
+            ),
+            req(2, "tools/list", None),
+            req(
+                3,
+                "tools/call",
+                Some(json!({"name": "fs.read", "arguments": {"path": "src/main.rs"}})),
+            ),
+            req(
+                4,
+                "tools/call",
+                Some(json!({"name": "db.drop", "arguments": {}})),
+            ),
+        ]),
+        ..Default::default()
+    };
 
-    let mut downstream = MemoryTransport::default();
-    downstream.incoming = VecDeque::from(vec![
-        resp(
-            1,
-            json!({"protocolVersion": "2025-06-18", "capabilities": {}, "serverInfo": {"name": "fake", "version": "0.1"}}),
-        ),
-        resp(
-            2,
-            json!({"tools": [{"name": "fs.read"}, {"name": "db.drop"}]}),
-        ),
-        resp(
-            3,
-            json!({"content": [{"type": "text", "text": "file contents"}]}),
-        ),
-    ]);
+    let downstream = MemoryTransport {
+        incoming: VecDeque::from(vec![
+            resp(
+                1,
+                json!({"protocolVersion": "2025-06-18", "capabilities": {}, "serverInfo": {"name": "fake", "version": "0.1"}}),
+            ),
+            resp(
+                2,
+                json!({"tools": [{"name": "fs.read"}, {"name": "db.drop"}]}),
+            ),
+            resp(
+                3,
+                json!({"content": [{"type": "text", "text": "file contents"}]}),
+            ),
+        ]),
+        ..Default::default()
+    };
 
     // Capture every intercepted call; refuse db.drop with a rule-named refusal.
     let seen: Rc<RefCell<Vec<ToolCall>>> = Rc::new(RefCell::new(Vec::new()));
