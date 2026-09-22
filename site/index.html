@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>writ — Nothing runs without a writ</title>
 <meta name="description" content="Authorization and provenance for AI agents. One policy file, one tamper-evident ledger, any agent.">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/icon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="assets/icon-180.png">
+<meta name="theme-color" content="#0b0f14">
+<meta property="og:title" content="writ — Nothing runs without a writ">
+<meta property="og:description" content="Authorization and provenance for AI agents. One policy file, one tamper-evident ledger, any agent.">
+<meta property="og:image" content="https://writ-omega.vercel.app/assets/social-preview.png">
+<meta property="og:url" content="https://writ-omega.vercel.app">
+<meta name="twitter:card" content="summary_large_image">
 <style>
   :root {
     --bg: #0b0f14;
@@ -45,8 +54,8 @@
     border-bottom: 1px solid var(--line);
   }
   nav .wrap { display: flex; align-items: center; gap: 20px; height: 56px; }
-  .logo { font-family: var(--mono); font-weight: 700; font-size: 18px; color: var(--text); }
-  .logo b { color: var(--accent); }
+  .logo { display: inline-flex; align-items: center; }
+  .logo img { display: block; height: 26px; width: auto; }
   nav .links { margin-left: auto; display: flex; gap: 20px; font-size: 14px; }
   nav .links a { color: var(--muted); }
   nav .links a:hover { color: var(--text); }
@@ -132,7 +141,7 @@
 
 <nav>
   <div class="wrap">
-    <span class="logo">writ<b>.</b></span>
+    <span class="logo"><img src="assets/wordmark-light.svg" alt="writ" width="61" height="26"></span>
     <div class="links">
       <a href="#policy">Policy</a>
       <a href="#ledger">Ledger</a>
@@ -250,7 +259,7 @@
 <footer>
   <div class="wrap">
     <div class="cols">
-      <span class="logo" style="font-size:15px">writ<b>.</b></span>
+      <span class="logo"><img src="assets/wordmark-light.svg" alt="writ" width="47" height="20" style="height:20px"></span>
       <a href="https://github.com/writ-agent/writ">GitHub</a>
       <a href="https://github.com/writ-agent/writ/blob/main/docs/THREAT_MODEL.md">Threat model</a>
       <a href="https://github.com/writ-agent/writ/blob/main/docs/policy-reference.md">Policy reference</a>

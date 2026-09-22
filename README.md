@@ -1,8 +1,6 @@
 <div align="center">
 
-# writ
-
-**Nothing runs without a writ.**
+<img src="docs/assets/brand/hero.svg" alt="writ — Nothing runs without a writ. Authorization and provenance for AI agents: a tool call passes a policy gate (allow, deny, ask, redact) and is recorded in a hash-chained ledger." width="100%">
 
 Your agent asks. Your policy decides. The ledger remembers.
 
