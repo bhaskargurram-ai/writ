@@ -27,7 +27,7 @@ running machine rather than assuming from the OS.
 |---|---|---|---|
 | Linux | Landlock (all write rights of the running ABI) + seccomp | Writes only under the workspace, a private temp dir and `/dev/{null,zero,full}`; `socket()` of every family, non-unix `socketpair` and `io_uring` return EPERM; holds as root | Reads and exec are not restricted. Landlock ABI v1–2 cannot cover truncate (refused in Required mode). Workspaces on 9p/drvfs (WSL `/mnt/c`) are refused because Landlock misbehaves there |
 | Windows | AppContainer token (low IL, no capabilities) + Job Object | Writes only in the workspace and the container profile; network blocked including loopback (when BFE and mpssvc run); kill-on-close, no breakaway, process limit | Objects that grant ALL APPLICATION PACKAGES write access stay writable. Reads are limited to what ALL APPLICATION PACKAGES can read, so tools installed under the user profile will not start. The workspace ACE persists after teardown |
-| macOS | Seatbelt (`sandbox_init`, generated profile) | Designed: writes only under workspace and temp; network denied | **Compiled, not yet observed on a real Mac.** Mach IPC is not restricted; reads are not restricted |
+| macOS | Seatbelt (`sandbox_init`, generated profile) | Writes only under workspace and temp; network denied (syscall-level tests run on CI's macOS runner) | Mach IPC is not restricted; reads are not restricted. `sandbox_init` is deprecated API that Apple may change |
 
 No platform can filter egress by hostname at this layer, so a non-empty
 `allowed_hosts` fails closed rather than being silently widened.
