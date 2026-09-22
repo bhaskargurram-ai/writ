@@ -35,6 +35,35 @@ No daemon, no images, no account. The default backend is the host OS, and the
 first run creates `.writ/ledger.jsonl` next to your policy. For a SQLite
 ledger, build with `--features sqlite` and pass `--ledger .writ/ledger.db`.
 
+## Integrations
+
+Every integration goes through one decision point, `writ check`
+([Contract 6](docs/INTERFACES.md)): the agent sends a pending tool call, writ
+evaluates `writ.yaml`, records the decision, and answers. No daemon; if writ
+is missing or errors, the tool does not run.
+
+| Agent | How | Per tool call |
+|---|---|---|
+| **Claude Code** | `writ integrate claude-code` (writes hooks into `.claude/settings.json`), or just `writ run -- claude` | yes — a writ `ask` becomes Claude Code's own permission prompt |
+| **LangGraph** | `writ_agent.langgraph.writ_tool_node(tools, writ)` | yes |
+| **OpenAI Agents SDK** | `writ_agent.openai_agents.guard_agent(agent, writ)` | yes |
+| **Claude Agent SDK** (Python / TypeScript) | `writ_agent.claude_agent_sdk.writ_hooks(writ)` / `createWritIntegration({ client })` | yes |
+| **Any MCP client** | `writ proxy --mcp --server <name> -- <server cmd>` | every MCP tool call |
+| **Any other agent** | `writ run -- <agent>`: kernel-confined launch; or call `writ check` from its hook system | launch, plus hooks where the agent has them |
+
+```bash
+# Claude Code, per project
+writ integrate claude-code
+
+# Python (not yet on PyPI — install from the repo)
+pip install "writ-agent[langgraph] @ git+https://github.com/writ-agent/writ#subdirectory=adapters/python"
+
+# TypeScript (not yet on npm — build from the repo)
+git clone https://github.com/writ-agent/writ && cd writ/adapters/typescript && npm ci && npm run build
+```
+
+Package docs: [Python](adapters/python/README.md) · [TypeScript](adapters/typescript/README.md).
+
 ## The policy that produced that session
 
 `writ.yaml` is the whole surface. Four verdicts, first match wins, unmatched
@@ -147,8 +176,8 @@ Full residual-risk table: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
 | Layer | Today | Next |
 |---|---|---|
-| Agents | any, via `run` or `proxy` | SDK hooks: LangGraph, OpenAI Agents SDK, Claude Agent SDK |
-| Interception | MCP stdio proxy, process wrap (launch supervision) | SSE + streamable HTTP, `writ run` inside the kernel boundary |
+| Agents | Claude Code (hooks), LangGraph, OpenAI Agents SDK, Claude Agent SDK (Python + TypeScript), any MCP client, any process via `run` | Codex, Gemini CLI, Cursor hooks |
+| Interception | hook gateway (`writ check`), MCP stdio proxy, process wrap | SSE + streamable HTTP |
 | Policy engines | native DSL, Rego, Cedar — one verdict IR, one fixture corpus | — |
 | Sandbox backends | local-os with a kernel boundary (Landlock + seccomp · AppContainer + Job Object · Seatbelt), docker | microsandbox, e2b/firecracker, k8s |
 | Ledger stores | JSONL (every platform), SQLite WAL (`sqlite` feature) | Postgres + object store, signed receipts |
@@ -181,7 +210,8 @@ frozen record schema.
 | 2 | `doctor`, `report`, replay trio, `policy test`, OTel spans, release pipeline | done |
 | 2 | Kernel sandbox (Landlock/seccomp · AppContainer · Seatbelt), docker backend, SQLite ledger, benchmarks | done — confining `writ run` itself is open |
 | 3 | Rego + Cedar | done |
-| 3 | SDK hooks, Postgres ledger, anchored receipts, Helm/SSO/RBAC/SIEM | in progress |
+| 3 | SDK hooks and the hook gateway | done |
+| 3 | Postgres ledger, anchored receipts, Helm/SSO/RBAC/SIEM | in progress |
 | 4 | Fuzzing (running weekly), e2e matrix, published benchmarks, 1.0 | in progress |
 
 `writ doctor` is the authority on what your build actually enforces. The plan and
@@ -201,7 +231,7 @@ its honest wave status live in
 | `crates/writ-replay`, `writ-otel` | Trajectory replay and OpenTelemetry spans |
 | `crates/writ-bench`, `fuzz/` | Criterion benches and cargo-fuzz targets (standalone crates) |
 | `packs/`, `examples/` | Policy packs and example `writ.yaml` files |
-| `adapters/` | SDK hook contracts (LangGraph, OpenAI Agents SDK, Claude Agent SDK) |
+| `adapters/python`, `adapters/typescript` | `writ-agent` (Python) and `@writ-agent/sdk` (TypeScript) integration packages |
 | `deploy/` | GitHub Action, Helm chart, air-gap and Terraform notes |
 | `docs/` | Policy reference, interfaces, threat model, ADRs — [index](docs/README.md) |
 | `site/` | The landing page |

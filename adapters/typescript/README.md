@@ -16,6 +16,8 @@ This package talks to writ over its gateway protocol (`writ check --stdio`,
 
 ## Install
 
+> **Not yet published.** Until the first release, install from this repository (see the root README's Integrations section).
+
 ```sh
 npm install @writ-agent/sdk
 # optional, for the Claude Agent SDK integration

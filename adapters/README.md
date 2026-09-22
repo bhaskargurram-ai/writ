@@ -1,24 +1,22 @@
-# Agent SDK Adapters
+# Agent integrations
 
-SDK-hook interception (mode C) scaffolds live here:
-- `langgraph/` (Python)
-- `agents-sdk/` (OpenAI Agents SDK, Python)
-- `claude-agent-sdk/` (TypeScript)
+All integrations speak writ's hook-gateway protocol
+([`docs/INTERFACES.md`, Contract 6](../docs/INTERFACES.md)) to a `writ check`
+child process, so every one of them records the same ledger evidence and
+fails closed the same way: no answer from writ, no tool call.
 
-Each adapter must normalize native tool events into the frozen `ToolCall` envelope
-from `docs/INTERFACES.md` before policy evaluation. The hook contract is the
-same for every SDK:
+| Package | Frameworks |
+|---|---|
+| [`python/`](python/) — `writ-agent` | LangGraph, OpenAI Agents SDK, Claude Agent SDK, any callable (`@writ_tool`) |
+| [`typescript/`](typescript/) — `@writ-agent/sdk` | Claude Agent SDK, any function or AI-SDK-style tool (`guard`, `guardTools`) |
 
-1. Intercept immediately before tool execution.
-2. Build `ToolCall { call_id, session_id, caller, mode: SdkHook, tool, args,
-   server, trust, captured_at }` without credentials in `args`.
-3. Send the envelope to writ (`handle_call` or the local writ daemon) and wait
-   for a verdict.
-4. Dispatch only on allow / approved ask / successful redact. Deny, timeout,
-   missing writ, invalid response, or adapter exception is fail-closed: do not
-   execute the tool.
-5. Preserve writ ledger and OTel semantics by recording exactly one decision for
-   every intercepted call.
+Claude Code needs no package: `writ integrate claude-code` wires
+`writ check --format claude-code` into its hooks, and `writ run -- claude`
+does the same for one confined session.
 
-These directories intentionally contain lightweight READMEs only for now: no
-runtime dependencies are added until concrete SDK packages are selected.
+Claude Code tool names map onto writ's policy vocabulary identically in the
+Rust gateway and both packages: `Bash`/`PowerShell` → `bash` (`command`),
+`Read`/`Glob`/`Grep`/`LS` → `fs.read` (`path`), `Write`/`Edit`/`MultiEdit`/
+`NotebookEdit` → `fs.write` (`path`), `WebFetch` → `http` (`url.host`),
+`WebSearch` → `web.search` (`query`), `mcp__<server>__<tool>` → `<tool>` on
+`server`.

@@ -11,6 +11,8 @@ integrations import their framework only when you import them.
 
 ## Install
 
+> **Not yet published.** Until the first release, install from this repository (see the root README's Integrations section).
+
 ```bash
 pip install writ-agent                     # core: WritClient, Writ, @writ_tool
 pip install "writ-agent[langgraph]"        # + LangGraph / LangChain

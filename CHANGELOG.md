@@ -12,6 +12,20 @@ Nothing has been tagged yet; everything below is on `main`.
 
 ### Added
 
+- **Hook gateway `writ check`** (INTERFACES Contract 6): one-shot or
+  `--stdio`, decide / resolve / complete, deferred asks, redaction of tool
+  output, fail-closed on every error. Refs are checked against the ledger and
+  work across processes.
+- **Claude Code integration**: `writ check --format claude-code` hooks and
+  `writ integrate claude-code`. A writ `ask` becomes Claude Code's own
+  permission prompt; every writ-side failure blocks the call (exit 2).
+- **`writ-agent` Python package**: LangGraph, OpenAI Agents SDK and Claude
+  Agent SDK integrations plus `@writ_tool` for any callable.
+- **`@writ-agent/sdk` TypeScript package**: Claude Agent SDK hooks,
+  `guard()` and `guardTools()`.
+- The JSONL ledger is safe for many concurrent writer processes (lock file,
+  tip re-read from disk).
+- Brand: logo, icon, README hero and social preview.
 - **Policy engines.** Rego (`writ-policy-rego`, via regorus) and Cedar
   (`writ-policy-cedar`, via cedar-policy) backends behind the same
   `PolicyEngine` trait, both verdict-identical to the native engine on the
@@ -52,6 +66,8 @@ Nothing has been tagged yet; everything below is on `main`.
 
 ### Fixed
 
+- The MCP proxy passed output through unmasked when a redact pattern was
+  invalid; it now withholds the output.
 - Parallel tests on macOS shared one temp directory (microsecond clock), so
   replay tests wrote into one ledger.
 - Concurrent opens of a SQLite ledger could fail with "database is locked".
