@@ -21,6 +21,10 @@ jobs:
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
+    env:
+      # Kernel sandbox tests fail (instead of skipping) if the runner cannot
+      # enforce the boundary: CI must prove enforcement on every OS.
+      WRIT_SANDBOX_REQUIRE_ENFORCEMENT: '1'
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable

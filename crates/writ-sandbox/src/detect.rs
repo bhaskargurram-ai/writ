@@ -39,10 +39,24 @@ fn docker_reachable() -> bool {
 /// stated, never implied.
 pub fn detect_backends() -> Vec<BackendInfo> {
     vec![
-        BackendInfo {
-            name: "local-os",
-            available: true,
-            notes: "process-level containment (clean env, workspace-bound cwd, timeouts); kernel enforcement is wave 2".into(),
+        {
+            let kh = crate::platform::kernel_hardening();
+            BackendInfo {
+                name: "local-os",
+                available: true,
+                notes: if kh.enforced {
+                    format!(
+                        "kernel-enforced workspace write boundary + deny-all egress ({})",
+                        kh.mechanism
+                    )
+                } else {
+                    format!(
+                        "kernel enforcement INCOMPLETE on this machine ({}); fail-closed \
+                         default refuses runs it cannot enforce — see kernel boundary below",
+                        kh.mechanism
+                    )
+                },
+            }
         },
         BackendInfo {
             name: "docker",

@@ -1,54 +1,16 @@
-//! Acceptance tests for the local-os backend (plan: A8).
+//! Acceptance tests for the local-os backend (plan: A8). Kernel-level
+//! enforcement tests live in `kernel_{linux,windows,macos}.rs`.
 
-use std::collections::BTreeMap;
+mod common;
+
+use common::{kernel_enforcement_available, req, spec_for, TestDir};
 use writ_core::sandbox::{ExecRequest, SandboxBackend, SandboxSpec};
 use writ_sandbox::{detect_backends, kernel_hardening, LocalOsBackend};
 
-/// Std-only unique temp dir (no tempfile dep: windows-sys cannot build on
-/// this environment's binutils — ADR-006). Auto-cleans on Drop.
-struct TestDir(std::path::PathBuf);
-
-impl TestDir {
-    fn new() -> Self {
-        let unique = format!("writ-test-{}-{}", std::process::id(), {
-            // A counter, not a timestamp: clock resolution is coarse on some
-            // platforms (macOS: µs), so parallel tests collided on one dir.
-            static SEQ: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
-            SEQ.fetch_add(1, std::sync::atomic::Ordering::Relaxed)
-        });
-        let p = std::env::temp_dir().join(unique);
-        std::fs::create_dir_all(&p).unwrap();
-        TestDir(p)
-    }
-    fn path(&self) -> &std::path::Path {
-        &self.0
-    }
-}
-
-impl Drop for TestDir {
-    fn drop(&mut self) {
-        let _ = std::fs::remove_dir_all(&self.0);
-    }
-}
-
 fn spec() -> (TestDir, SandboxSpec) {
     let dir = TestDir::new();
-    let spec = SandboxSpec {
-        workspace: dir.path().to_path_buf(),
-        allowed_hosts: vec![],
-        env: BTreeMap::new(),
-    };
+    let spec = spec_for(dir.path());
     (dir, spec)
-}
-
-fn req(program: &str, args: Vec<String>, timeout_ms: u64) -> ExecRequest {
-    ExecRequest {
-        program: program.into(),
-        args,
-        cwd: None,
-        env: BTreeMap::new(),
-        timeout_ms: Some(timeout_ms),
-    }
 }
 
 #[cfg(windows)]
@@ -63,11 +25,14 @@ fn echo_req(msg: &str) -> ExecRequest {
 
 #[test]
 fn exec_captures_output_and_exit_code() {
+    if !kernel_enforcement_available() {
+        return;
+    }
     let (_d, s) = spec();
     let mut b = LocalOsBackend::new();
     let id = b.prepare(&s).unwrap();
     let out = b.exec(&id, &echo_req("hello-writ")).unwrap();
-    assert_eq!(out.exit_code, 0);
+    assert_eq!(out.exit_code, 0, "stderr: {}", common::text(&out.stderr));
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(stdout.contains("hello-writ"), "stdout was: {stdout}");
     b.teardown(id).unwrap();
@@ -75,15 +40,20 @@ fn exec_captures_output_and_exit_code() {
 
 #[test]
 fn timeout_kills_sleeper() {
+    if !kernel_enforcement_available() {
+        return;
+    }
     let (_d, s) = spec();
     let mut b = LocalOsBackend::new();
     let id = b.prepare(&s).unwrap();
+    // An infinite cmd loop: ping/timeout are unsuitable inside an
+    // AppContainer (no network; timeout refuses a NUL stdin).
     #[cfg(windows)]
     let r = req(
-        "ping",
-        vec!["-n".into(), "30".into(), "127.0.0.1".into()],
+        "cmd",
+        vec!["/c".into(), "for /l %i in (0,0,1) do @rem".into()],
         300,
-    ); // ping: timeout refuses piped stdin
+    );
     #[cfg(not(windows))]
     let r = req("sh", vec!["-c".into(), "sleep 30".into()], 300);
     let err = b.exec(&id, &r).unwrap_err();
@@ -92,6 +62,9 @@ fn timeout_kills_sleeper() {
 
 #[test]
 fn cwd_escape_is_rejected() {
+    if !kernel_enforcement_available() {
+        return;
+    }
     let (d, s) = spec();
     let mut b = LocalOsBackend::new();
     let id = b.prepare(&s).unwrap();
@@ -101,28 +74,41 @@ fn cwd_escape_is_rejected() {
     assert!(err.to_string().contains("escapes workspace"), "{err}");
 }
 
-#[cfg(not(windows))]
 #[test]
-fn child_env_is_clean() {
+fn child_env_is_clean_and_temp_is_private() {
+    if !kernel_enforcement_available() {
+        return;
+    }
     std::env::set_var("WRIT_TEST_LEAK", "1");
     let (_d, s) = spec();
     let mut b = LocalOsBackend::new();
     let id = b.prepare(&s).unwrap();
+    let tmp = b.temp_dir(&id).unwrap().to_path_buf();
+    assert!(tmp.is_dir());
     #[cfg(windows)]
     let r = req(
         "cmd",
-        vec!["/c".into(), "echo [%WRIT_TEST_LEAK%]".into()],
+        vec!["/c".into(), "echo [%WRIT_TEST_LEAK%] [%TEMP%]".into()],
         10_000,
     );
     #[cfg(not(windows))]
     let r = req(
         "sh",
-        vec!["-c".into(), "echo [$WRIT_TEST_LEAK]".into()],
+        vec!["-c".into(), "echo [$WRIT_TEST_LEAK] [$TMPDIR]".into()],
         10_000,
     );
     let out = b.exec(&id, &r).unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(!stdout.contains("[1]"), "parent env leaked: {stdout}");
+    assert!(
+        stdout.contains(&format!("[{}]", tmp.display())),
+        "temp not private: {stdout}"
+    );
+    b.teardown(id).unwrap();
+    assert!(
+        !tmp.exists(),
+        "private temp dir must be removed on teardown"
+    );
 }
 
 #[test]
@@ -130,8 +116,45 @@ fn detect_reports_local_os_and_kernel_honesty() {
     let backends = detect_backends();
     assert!(backends.iter().any(|b| b.name == "local-os" && b.available));
     assert!(backends.iter().all(|b| !b.notes.is_empty()));
+    let kh = kernel_hardening();
+    let caps = writ_sandbox::capabilities();
+    // `enforced` is derived from the probed capabilities, never assumed.
+    assert_eq!(
+        kh.enforced,
+        caps.filesystem.is_full() && caps.network_deny.is_full()
+    );
+    assert!(kh.notes.contains("filesystem:") && kh.notes.contains("network:"));
+    assert!(kh.notes.contains("allowed_hosts"));
+    if !kh.enforced {
+        assert!(kh.notes.contains("NOT enforced") || kh.notes.contains("PARTIAL"));
+    }
+}
+
+#[test]
+fn prepare_matches_reported_enforcement() {
+    let (_d, s) = spec();
+    let mut b = LocalOsBackend::new();
+    match b.prepare(&s) {
+        Ok(id) => {
+            let r = b.enforcement(&id).unwrap();
+            assert!(r.fully_enforced(), "{r:?}");
+            assert!(kernel_hardening().enforced);
+        }
+        Err(e) => {
+            assert!(!kernel_hardening().enforced);
+            assert!(e.to_string().contains("fail closed"), "{e}");
+        }
+    }
+}
+
+#[test]
+fn non_empty_allow_list_fails_closed_by_default() {
+    let (_d, mut s) = spec();
+    s.allowed_hosts = vec!["api.example.com".into()];
+    let err = LocalOsBackend::new().prepare(&s).unwrap_err();
+    let msg = err.to_string();
     assert!(
-        !kernel_hardening().enforced,
-        "wave 1 must not claim kernel enforcement"
+        msg.contains("fail closed") && msg.contains("api.example.com"),
+        "{msg}"
     );
 }

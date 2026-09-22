@@ -4,15 +4,37 @@
 //! `local-os` is the default workstation backend; container/VM/cluster
 //! adapters are detected if present (see [`detect::detect_backends`]).
 
-#![forbid(unsafe_code)]
+// `unsafe` is confined to the per-OS kernel-enforcement modules below (raw
+// syscalls / Win32 calls, each block minimal with a SAFETY comment).
+#![deny(unsafe_code)]
+#![deny(unsafe_op_in_unsafe_fn)]
 
 pub mod detect;
+pub mod enforce;
 pub mod local_os;
 pub mod platform;
 
+#[cfg(target_os = "linux")]
+#[allow(unsafe_code)]
+mod linux;
+#[cfg(target_os = "macos")]
+#[allow(unsafe_code)]
+mod macos;
+#[cfg(unix)]
+#[allow(unsafe_code)]
+mod unix;
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows;
+
 pub use detect::{detect_backends, BackendInfo};
+pub use enforce::{Capabilities, EnforcementMode, EnforcementReport, Level, Support};
 pub use local_os::LocalOsBackend;
-pub use platform::{kernel_hardening, KernelHardening};
+pub use platform::{capabilities, kernel_hardening, KernelHardening};
+
+/// Maximum simultaneously live processes per run on Windows (Job Object).
+#[cfg(windows)]
+pub use windows::ACTIVE_PROCESS_LIMIT;
 
 use writ_core::sandbox::SandboxBackend;
 

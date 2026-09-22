@@ -462,11 +462,13 @@ pub fn doctor(policy: &Path, ledger: &Path) -> Result<()> {
     println!();
     println!("kernel boundary ({}): {}", kh.platform, kh.mechanism);
     println!("  enforced: {} — {}", kh.enforced, kh.notes);
+    println!("  applies to: commands executed through the local-os sandbox backend;");
+    println!("              NOT to the agent process that `writ run` launches");
     println!();
 
     println!("interception coverage:");
     println!("  MCP proxy (mode A)     : ready — `writ proxy --mcp` governs every MCP tool call");
-    println!("  process wrap (mode B)  : launch supervision only in this build; kernel floor NOT enforced (wave 2)");
+    println!("  process wrap (mode B)  : launch supervision only; the wrapped agent runs outside the kernel boundary");
     println!(
         "  SDK hooks (mode C)     : wave 3 — LangGraph / OpenAI Agents SDK / Claude Agent SDK"
     );
