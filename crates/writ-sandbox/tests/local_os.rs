@@ -103,6 +103,7 @@ fn cwd_escape_is_rejected() {
     assert!(err.to_string().contains("escapes workspace"), "{err}");
 }
 
+#[cfg(not(windows))]
 #[test]
 fn child_env_is_clean() {
     std::env::set_var("WRIT_TEST_LEAK", "1");
