@@ -17,7 +17,7 @@ export {
   WritUnavailableError,
   describeBlock,
 } from "./errors.js";
-export { findOnPath, locateWrit } from "./locate.js";
+export { bundledWrit, findOnPath, locateWrit } from "./locate.js";
 export type { Launch } from "./locate.js";
 export { PROTOCOL_VERSION } from "./protocol.js";
 export type {

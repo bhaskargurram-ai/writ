@@ -22,9 +22,9 @@ case "$arch" in
 esac
 
 case "$os" in
-  linux) target="$arch-unknown-linux-gnu" ;;
+  linux) target="$arch-unknown-linux-musl" ;;  # static: runs on any distro
   darwin) target="$arch-apple-darwin" ;;
-  mingw*|msys*|cygwin*) target="x86_64-pc-windows-msvc" ;;
+  mingw*|msys*|cygwin*) target="x86_64-pc-windows-msvc"; EXE_SUFFIX=".exe" ;;
   *) echo "unsupported os: $os" >&2; exit 1 ;;
 esac
 
@@ -35,19 +35,19 @@ if [ "${WRIT_FROM_SOURCE:-0}" = "1" ]; then
 else
   tag="$version"
   if [ "$tag" = "latest" ]; then
-    url="https://github.com/$repo/releases/latest/download/writ-$target"
+    url="https://github.com/$repo/releases/latest/download/writ-$target${EXE_SUFFIX:-}"
   else
-    url="https://github.com/$repo/releases/download/$tag/writ-$target"
+    url="https://github.com/$repo/releases/download/$tag/writ-$target${EXE_SUFFIX:-}"
   fi
   echo "downloading $url" >&2
   if command -v curl >/dev/null 2>&1; then
-    curl -fsSL "$url" -o "$BIN_DIR/writ"
+    curl -fsSL "$url" -o "$BIN_DIR/writ${EXE_SUFFIX:-}"
   elif command -v wget >/dev/null 2>&1; then
-    wget -qO "$BIN_DIR/writ" "$url"
+    wget -qO "$BIN_DIR/writ${EXE_SUFFIX:-}" "$url"
   else
     echo "need curl or wget" >&2; exit 1
   fi
 fi
 
-chmod +x "$BIN_DIR/writ" 2>/dev/null || true
-echo "installed: $BIN_DIR/writ"
+chmod +x "$BIN_DIR/writ${EXE_SUFFIX:-}" 2>/dev/null || true
+echo "installed: $BIN_DIR/writ${EXE_SUFFIX:-}"

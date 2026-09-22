@@ -1,6 +1,6 @@
 {
   "name": "@writ-agent/sdk",
-  "version": "0.1.0",
+  "version": "0.1.1",
   "description": "TypeScript/Node client for the writ hook gateway: policy-checked, ledger-recorded tool calls for AI agents (Claude Agent SDK hooks, generic tool wrappers).",
   "license": "Apache-2.0",
   "type": "module",
@@ -91,5 +91,8 @@
   "homepage": "https://github.com/writ-agent/writ/tree/main/adapters/typescript#readme",
   "bugs": {
     "url": "https://github.com/writ-agent/writ/issues"
+  },
+  "optionalDependencies": {
+    "@writ-agent/cli": "0.1.1"
   }
 }

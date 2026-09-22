@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "writ-sdk"
-version = "0.1.0"
+version = "0.1.1"
 description = "Policy-gated tool calls for Python agents: every tool call is checked against writ.yaml and recorded to writ's hash-chained ledger."
 readme = "README.md"
 requires-python = ">=3.10"
@@ -21,9 +21,10 @@ classifiers = [
     "Topic :: Security",
     "Typing :: Typed",
 ]
-# Zero required runtime dependencies: the package talks to the `writ` binary
-# over stdin/stdout. Framework integrations import their framework lazily.
-dependencies = []
+# One runtime dependency: writ-cli, whose platform wheels carry the prebuilt
+# `writ` binary this package drives over stdin/stdout. Framework integrations
+# import their framework lazily.
+dependencies = ["writ-cli==0.1.1"]
 
 [project.optional-dependencies]
 langgraph = ["langgraph>=1.0", "langchain-core>=1.0"]

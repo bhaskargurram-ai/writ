@@ -71,12 +71,36 @@ def _close_all_at_exit() -> None:
 atexit.register(_close_all_at_exit)
 
 
+def bundled_writ_binary() -> str | None:
+    """The ``writ`` executable installed by the ``writ-cli`` package, if any.
+
+    ``writ-sdk`` depends on ``writ-cli``, whose platform wheels carry the
+    compiled binary as an installed script. Resolving it through the package
+    metadata finds it even when the environment's scripts directory is not on
+    ``PATH`` (an unactivated virtualenv, ``pip install --user``).
+    """
+    try:
+        from importlib import metadata
+
+        dist = metadata.distribution("writ-cli")
+    except Exception:
+        return None
+    names = {"writ", "writ.exe"}
+    for entry in dist.files or ():
+        if entry.name.lower() in names:
+            path = os.path.abspath(str(dist.locate_file(entry)))
+            if os.path.isfile(path):
+                return path
+    return None
+
+
 def find_writ_binary(binary: str | os.PathLike[str] | None = None) -> list[str]:
     """Resolve the argv prefix that starts writ.
 
     Order: explicit ``binary`` argument, then the ``WRIT_BIN`` environment
-    variable, then ``writ`` on ``PATH``. A path ending in ``.py`` is run with
-    the current interpreter (useful for protocol test doubles).
+    variable, then the binary bundled by the ``writ-cli`` package, then
+    ``writ`` on ``PATH``. A path ending in ``.py`` is run with the current
+    interpreter (useful for protocol test doubles).
     """
     candidate = os.fspath(binary) if binary is not None else os.environ.get("WRIT_BIN")
     source = "binary argument" if binary is not None else "WRIT_BIN"
@@ -92,10 +116,11 @@ def find_writ_binary(binary: str | os.PathLike[str] | None = None) -> list[str]:
                 raise WritUnavailable(f"writ binary from {source} not found on PATH: {candidate}")
             path = found
     else:
-        found = shutil.which("writ")
+        found = bundled_writ_binary() or shutil.which("writ")
         if not found:
             raise WritUnavailable(
-                "writ binary not found: set WRIT_BIN or put `writ` on PATH "
+                "writ binary not found: install writ-cli (`pip install writ-cli`), "
+                "set WRIT_BIN, or put `writ` on PATH "
                 "(tool calls are blocked until writ is available)"
             )
         path = found

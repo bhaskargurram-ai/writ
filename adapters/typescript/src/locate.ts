@@ -1,7 +1,9 @@
 import { statSync } from "node:fs";
+import { createRequire } from "node:module";
 import { delimiter, extname, isAbsolute, join, resolve } from "node:path";
 
 import { WritUnavailableError } from "./errors.js";
+import { selfUrl } from "./self.js";
 
 /** A resolved program + leading arguments to spawn. */
 export interface Launch {
@@ -56,17 +58,35 @@ export function findOnPath(
 }
 
 /**
- * Locate writ: explicit `bin`, then `WRIT_BIN`, then PATH. Throws
- * `WritUnavailableError` when nothing is found.
+ * The prebuilt binary from the optional `@writ-agent/cli` dependency, if it
+ * is installed next to this SDK and ships a binary for this platform.
+ */
+export function bundledWrit(from: string | undefined = selfUrl): string | undefined {
+  if (from === undefined) return undefined;
+  try {
+    const req = createRequire(from);
+    const cli = req("@writ-agent/cli") as { binaryPath?: () => string };
+    const path = typeof cli.binaryPath === "function" ? cli.binaryPath() : undefined;
+    return path !== undefined && isFile(path) ? path : undefined;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Locate writ: explicit `bin`, then `WRIT_BIN`, then the binary bundled by
+ * `@writ-agent/cli`, then PATH. Throws `WritUnavailableError` when nothing is
+ * found.
  */
 export function locateWrit(bin?: string, env: NodeJS.ProcessEnv = process.env): Launch {
   if (bin !== undefined && bin !== "") return launchFor(bin);
   const fromEnv = env.WRIT_BIN;
   if (fromEnv !== undefined && fromEnv !== "") return launchFor(fromEnv);
-  const found = findOnPath("writ", env);
+  const found = bundledWrit() ?? findOnPath("writ", env);
   if (found === undefined) {
     throw new WritUnavailableError(
-      "writ binary not found: set WRIT_BIN or put writ on PATH (fail closed: no tool call will run)",
+      "writ binary not found: install @writ-agent/cli, set WRIT_BIN, or put writ on PATH " +
+        "(fail closed: no tool call will run)",
     );
   }
   return { command: found, args: [] };

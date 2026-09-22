@@ -70,10 +70,48 @@ def test_missing_binary_env(monkeypatch, tmp_path):
 
 
 def test_missing_binary_path(monkeypatch):
+    import writ_sdk.client as client_mod
+
     monkeypatch.delenv("WRIT_BIN", raising=False)
     monkeypatch.setenv("PATH", "")
+    monkeypatch.setattr(client_mod, "bundled_writ_binary", lambda: None)
     with pytest.raises(WritUnavailable):
         WritClient().decide(call("allowed"))
+
+
+def test_bundled_binary_is_preferred_over_path(monkeypatch, tmp_path):
+    import writ_sdk.client as client_mod
+
+    bundled = tmp_path / "bundled" / "writ.exe"
+    bundled.parent.mkdir()
+    bundled.write_bytes(b"")
+    on_path = tmp_path / "onpath"
+    on_path.mkdir()
+    (on_path / "writ.exe").write_bytes(b"")
+    (on_path / "writ").write_bytes(b"")
+    monkeypatch.delenv("WRIT_BIN", raising=False)
+    monkeypatch.setenv("PATH", str(on_path))
+    monkeypatch.setattr(client_mod, "bundled_writ_binary", lambda: str(bundled))
+    assert client_mod.find_writ_binary() == [str(bundled)]
+
+
+def test_writ_bin_overrides_bundled(monkeypatch, fake_bin):
+    import writ_sdk.client as client_mod
+
+    monkeypatch.setattr(client_mod, "bundled_writ_binary", lambda: "/should/not/be/used")
+    assert client_mod.find_writ_binary()[-1].endswith("fake_writ.py")
+
+
+def test_bundled_lookup_without_writ_cli_is_none(monkeypatch):
+    from importlib import metadata
+
+    import writ_sdk.client as client_mod
+
+    def missing(name):
+        raise metadata.PackageNotFoundError(name)
+
+    monkeypatch.setattr(metadata, "distribution", missing)
+    assert client_mod.bundled_writ_binary() is None
 
 
 def test_binary_exits_immediately_like_stub(fake_bin, monkeypatch):

@@ -1950,7 +1950,7 @@ dependencies = [
 
 [[package]]
 name = "writ-cli"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "anyhow",
  "clap",
@@ -1972,7 +1972,7 @@ dependencies = [
 
 [[package]]
 name = "writ-core"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hex",
  "serde",
@@ -1983,7 +1983,7 @@ dependencies = [
 
 [[package]]
 name = "writ-ledger"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "hex",
  "rusqlite",
@@ -1996,7 +1996,7 @@ dependencies = [
 
 [[package]]
 name = "writ-mcp"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2007,7 +2007,7 @@ dependencies = [
 
 [[package]]
 name = "writ-otel"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2017,7 +2017,7 @@ dependencies = [
 
 [[package]]
 name = "writ-policy"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "regex",
  "serde",
@@ -2029,7 +2029,7 @@ dependencies = [
 
 [[package]]
 name = "writ-policy-cedar"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "cedar-policy",
  "regex",
@@ -2039,7 +2039,7 @@ dependencies = [
 
 [[package]]
 name = "writ-policy-rego"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "regorus",
  "serde_json",
@@ -2049,7 +2049,7 @@ dependencies = [
 
 [[package]]
 name = "writ-replay"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2061,7 +2061,7 @@ dependencies = [
 
 [[package]]
 name = "writ-sandbox"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "landlock",
  "libc",
@@ -2075,14 +2075,14 @@ dependencies = [
 
 [[package]]
 name = "writ-sandbox-docker"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "writ-core",
 ]
 
 [[package]]
 name = "writ-tui"
-version = "0.1.0"
+version = "0.1.1"
 dependencies = [
  "serde_json",
  "writ-core",

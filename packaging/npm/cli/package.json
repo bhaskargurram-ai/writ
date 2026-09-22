@@ -1,0 +1,24 @@
+{
+  "name": "@writ-agent/cli",
+  "version": "0.1.1",
+  "description": "The writ binary: authorization and provenance for AI agents. One policy file, one tamper-evident ledger, any agent.",
+  "license": "Apache-2.0",
+  "author": "Bhaskar Gurram <gurrambhaskar.ai@gmail.com>",
+  "homepage": "https://writ-omega.vercel.app",
+  "repository": { "type": "git", "url": "git+https://github.com/writ-agent/writ.git", "directory": "packaging/npm/cli" },
+  "bugs": { "url": "https://github.com/writ-agent/writ/issues" },
+  "keywords": ["ai-agents", "authorization", "policy", "audit", "mcp", "claude-code"],
+  "main": "index.js",
+  "types": "index.d.ts",
+  "bin": { "writ": "bin/writ.js" },
+  "files": ["index.js", "index.d.ts", "bin/writ.js", "README.md", "LICENSE"],
+  "engines": { "node": ">=18" },
+  "publishConfig": { "access": "public" },
+  "optionalDependencies": {
+    "@writ-agent/cli-darwin-arm64": "0.1.1",
+    "@writ-agent/cli-darwin-x64": "0.1.1",
+    "@writ-agent/cli-linux-arm64": "0.1.1",
+    "@writ-agent/cli-linux-x64": "0.1.1",
+    "@writ-agent/cli-win32-x64": "0.1.1"
+  }
+}
