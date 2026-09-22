@@ -253,3 +253,21 @@ pub fn verify_chain(records: impl Iterator<Item = Result<LedgerRecord>>) -> Resu
         broken_at: None,
     })
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// Pins the hash encoding every existing ledger was written with
+    /// (FIPS 180-2 "abc" vector, lowercase hex). A dependency bump that
+    /// changed the digest or its formatting would break `writ verify` on
+    /// every historical ledger; this catches it first.
+    #[test]
+    fn sha256_encoding_is_stable() {
+        assert_eq!(
+            LedgerRecord::hash_bytes(b"abc"),
+            "ba7816bf8f01cfea414140de5dae2223b00361a396177a9cb410ff61f20015ad"
+        );
+        assert_eq!(GENESIS_HASH.len(), 64);
+    }
+}
