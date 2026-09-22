@@ -1959,7 +1959,7 @@ name = "writ-policy-cedar"
 version = "0.1.0"
 dependencies = [
  "cedar-policy",
- "serde_json",
+ "regex",
  "writ-core",
  "writ-policy",
 ]

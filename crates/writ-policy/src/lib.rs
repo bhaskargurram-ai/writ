@@ -24,6 +24,10 @@ mod parser;
 pub mod policy_file;
 
 pub use engine::NativePolicyEngine;
+/// Canonical verdict construction, shared by every engine backend (Rego,
+/// Cedar) so a matched rule or a policy default yields byte-identical
+/// verdicts regardless of the engine that decided it.
+pub use engine::{default_verdict, eval_expr, verdict_for};
 pub use fixtures::{
     load_fixtures_dir, run_fixtures, Expectation, ExpectedKind, Fixture, FixtureCtx,
     FixtureFailure, TestReport,

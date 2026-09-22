@@ -54,8 +54,10 @@ use std::sync::{Arc, Mutex};
 use writ_core::call::{InterceptMode, ToolCallContext};
 use writ_core::error::{Result, WritError};
 use writ_core::policy::{PolicyEngine, PolicyMeta};
-use writ_core::verdict::{DefaultVerdict, Verdict};
-use writ_policy::policy_file::{compile, CompiledPolicy, CompiledRule, POLICY_FILE_NAME};
+use writ_core::verdict::Verdict;
+use writ_policy::policy_file::{compile, CompiledPolicy};
+
+use writ_policy::{default_verdict, verdict_for};
 
 use crate::codegen::generate_module;
 
@@ -187,90 +189,6 @@ fn mode_str(mode: InterceptMode) -> &'static str {
     }
 }
 
-// ---------------------------------------------------------------------------
-// Verdict construction (parity with the native engine)
-// ---------------------------------------------------------------------------
-
-/// The policy default, always carrying rule_id + human reason for Deny/Ask
-/// (spec §12: never "denied by policy").
-///
-/// Verbatim mirror of `writ_policy::engine::default_verdict`. The writ-policy
-/// `engine` module is private, so sibling engine crates cannot call it
-/// directly yet; the fixture-parity test below pins these copies to the
-/// native engine byte-for-byte on the shared corpus.
-fn default_verdict(default: DefaultVerdict) -> Verdict {
-    match default {
-        DefaultVerdict::Allow => Verdict::Allow { rule_id: Some("default".to_string()) },
-        DefaultVerdict::Ask => Verdict::Ask {
-            rule_id: "default".to_string(),
-            diff: "No policy rule matched this call; the policy default is `ask`. A human must approve it.".to_string(),
-            timeout_ms: None,
-            irreversible: false,
-            location: None,
-        },
-        DefaultVerdict::Deny => Verdict::Deny {
-            rule_id: "default".to_string(),
-            reason: "No policy rule matched this call; the policy default is `deny`.".to_string(),
-            location: None,
-        },
-    }
-}
-
-/// Canonical verdict construction for a matched rule — verbatim mirror of
-/// `writ_policy::engine::verdict_for` (kept private in writ-policy; see the
-/// note on [`default_verdict`]).
-fn verdict_for(rule: &CompiledRule, ctx: &ToolCallContext) -> Verdict {
-    let location = rule.line.map(|l| format!("{}:{}", POLICY_FILE_NAME, l));
-    match rule.verdict {
-        writ_policy::policy_file::RuleVerdict::Allow => Verdict::Allow {
-            rule_id: Some(rule.id.clone()),
-        },
-        writ_policy::policy_file::RuleVerdict::Deny => Verdict::Deny {
-            rule_id: rule.id.clone(),
-            reason: rule.reason.clone().unwrap_or_else(|| {
-                format!(
-                    "Denied by rule `{}`. The policy author did not provide a reason; inspect {}.",
-                    rule.id,
-                    location
-                        .clone()
-                        .unwrap_or_else(|| POLICY_FILE_NAME.to_string())
-                )
-            }),
-            location,
-        },
-        writ_policy::policy_file::RuleVerdict::Ask => Verdict::Ask {
-            rule_id: rule.id.clone(),
-            diff: rule.reason.clone().unwrap_or_else(|| ask_diff(rule, ctx)),
-            timeout_ms: rule.timeout_ms,
-            irreversible: rule.irreversible,
-            location,
-        },
-        writ_policy::policy_file::RuleVerdict::Redact => Verdict::Redact {
-            rule_id: rule.id.clone(),
-            patterns: rule.patterns.clone(),
-        },
-    }
-}
-
-/// Fallback Ask diff when the rule omits `reason`: describe the planned call
-/// (mirror of `writ_policy::engine::ask_diff`).
-fn ask_diff(rule: &CompiledRule, ctx: &ToolCallContext) -> String {
-    let mut detail = format!("tool `{}`", ctx.tool);
-    if let Some(c) = &ctx.command {
-        detail.push_str(&format!(", command `{}`", c));
-    }
-    if let Some(p) = &ctx.path {
-        detail.push_str(&format!(", path `{}`", p));
-    }
-    if let Some(q) = &ctx.query {
-        detail.push_str(&format!(", query `{}`", q));
-    }
-    if let Some(h) = &ctx.url_host {
-        detail.push_str(&format!(", host `{}`", h));
-    }
-    format!("Rule `{}` requires human approval for {}", rule.id, detail)
-}
-
 impl PolicyEngine for RegoPolicyEngine {
     fn name(&self) -> &'static str {
         "rego"
@@ -310,6 +228,7 @@ impl PolicyEngine for RegoPolicyEngine {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use writ_core::verdict::DefaultVerdict;
     use writ_policy::fixtures::{load_fixtures_dir, Fixture};
     use writ_policy::NativePolicyEngine;
 
