@@ -21,7 +21,7 @@ fuzz_target!(|data: &[u8]| {
             for tool in ["bash", "http", "postgres.query", "fs.read", ""] {
                 let ctx = ToolCallContext {
                     tool: tool.to_string(),
-                    command: Some(data.iter().map(|b| b as char).take(64).collect()),
+                    command: Some(data.iter().map(|&b| b as char).take(64).collect()),
                     ..ToolCallContext::default()
                 };
                 let _ = engine.evaluate(&ctx);

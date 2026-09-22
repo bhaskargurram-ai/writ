@@ -3,32 +3,69 @@ on:
   push: { branches: [main] }
   pull_request:
 
+permissions:
+  contents: read
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+env:
+  CARGO_TERM_COLOR: always
+
 jobs:
   test:
+    name: test (${{ matrix.os }})
     strategy:
+      fail-fast: false
       matrix:
         os: [ubuntu-latest, macos-latest, windows-latest]
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
       - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - uses: Swatinem/rust-cache@v2
       - run: cargo fmt --all -- --check
-      - run: cargo clippy --workspace --all-targets -- -D warnings
-      - run: cargo test --workspace
+      - run: cargo clippy --workspace --all-targets --all-features -- -D warnings
+      - run: cargo test --workspace --all-features
+
+  benches:
+    name: benches compile
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+        with:
+          workspaces: crates/writ-bench
+      # Compile only: numbers from shared CI runners are not publishable.
+      - run: cargo bench --no-run
+        working-directory: crates/writ-bench
+
+  cargo-deny:
+    name: licenses, advisories, sources
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+        with:
+          command: check advisories licenses sources
 
   claim-discipline:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
       - name: forbid unearned assurance claims (spec section 7/15)
-        run: |
-          set -e
-          EXCLUDE="--exclude=ci.yml --exclude=WRIT_MASTER_BUILD_PLAN.md --exclude=PULL_REQUEST_TEMPLATE.md"
-          # Always banned, no context saves them:
-          ! grep -rniE --include="*.md" --include="*.rs" $EXCLUDE \
-            "bank.?grade|SOC.?2 (certified|compliant)|prevents? prompt injection|sub-millisecond" . \
-            || (echo "claim-discipline violation (absolute)" && exit 1)
-          # "tamper-proof" is banned UNLESS qualified on the same line:
-          ! grep -rniE --include="*.md" --include="*.rs" $EXCLUDE "tamper-proof" . \
-            | grep -viE "evident|not |never|only |without|require|\bno\b|until" \
-            || (echo "claim-discipline violation (unqualified tamper-proof)" && exit 1)
+        run: python3 scripts/claim_lint.py
+
+  packs:
+    name: policy packs validate
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - uses: Swatinem/rust-cache@v2
+      - run: python3 -m pip install --quiet pyyaml
+      - run: python3 scripts/validate_packs.py
