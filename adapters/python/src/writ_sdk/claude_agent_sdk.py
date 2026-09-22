@@ -20,7 +20,7 @@ an error reply whose handling is up to the CLI). Every failure answers
 ``deny`` in ``PreToolUse``; in ``PostToolUse`` a redacted call whose
 redaction cannot be completed has every string in its output masked.
 
-Tool names and inputs are mapped with :func:`writ_agent.toolmap.map_claude_tool`,
+Tool names and inputs are mapped with :func:`writ_sdk.toolmap.map_claude_tool`,
 the same table ``writ check --format claude-code`` uses.
 """
 
@@ -79,7 +79,7 @@ class WritClaudeHooks:
     """writ hooks for ``ClaudeAgentOptions(hooks=WritClaudeHooks(writ).hooks())``.
 
     Args:
-        writ: the :class:`~writ_agent.Writ` gate. Give it an ``approver`` to
+        writ: the :class:`~writ_sdk.Writ` gate. Give it an ``approver`` to
             handle ``ask`` verdicts (the client then runs ``--ask defer``);
             without one, asks are rejected.
         session_id: override the SDK's session id.
@@ -115,7 +115,7 @@ class WritClaudeHooks:
 
     def _caller(self, inp: Mapping[str, Any]) -> Caller:
         c = self.writ.caller
-        if c.agent == "writ-agent":
+        if c.agent == "writ-sdk":
             agent_id = inp.get("agent_id")
             return Caller(
                 agent="claude-agent-sdk",

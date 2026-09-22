@@ -1,11 +1,11 @@
 # @writ-agent/sdk
 
-TypeScript / Node client for the [writ](../../README.md) hook gateway. Before an
+TypeScript / Node client for the [writ](https://github.com/writ-agent/writ/blob/main/README.md) hook gateway. Before an
 agent's tool call runs, writ checks it against `writ.yaml` (allow / deny / ask /
 redact) and records it to writ's hash-chained, tamper-evident ledger.
 
 This package talks to writ over its gateway protocol (`writ check --stdio`,
-[INTERFACES.md Contract 6](../../docs/INTERFACES.md)). It spawns one long-lived
+[INTERFACES.md Contract 6](https://github.com/writ-agent/writ/blob/main/docs/INTERFACES.md)). It spawns one long-lived
 `writ check` child process per `WritClient`, so there is no daemon to run.
 
 - ESM and CommonJS builds, TypeScript types, Node >= 18, no runtime dependencies.
@@ -16,7 +16,9 @@ This package talks to writ over its gateway protocol (`writ check --stdio`,
 
 ## Install
 
-> **Not yet published.** Until the first release, install from this repository (see the root README's Integrations section).
+> **You also need the `writ` binary.** Until prebuilt releases ship, install it
+> from source: `cargo install --git https://github.com/writ-agent/writ writ-cli`
+> (Rust stable), then check with `writ --version`.
 
 ```sh
 npm install @writ-agent/sdk

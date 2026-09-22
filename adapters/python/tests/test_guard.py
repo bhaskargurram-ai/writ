@@ -6,7 +6,7 @@ import time
 
 import pytest
 
-from writ_agent import (
+from writ_sdk import (
     Approval,
     Writ,
     WritApprovalRejected,

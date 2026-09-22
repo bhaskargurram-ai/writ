@@ -5,7 +5,7 @@ each response line to the waiting caller. The client is thread-safe, and
 :class:`AsyncWritClient` shares the same machinery without blocking the
 event loop.
 
-Fail-closed rules (every one raises a :class:`~writ_agent.errors.WritError`):
+Fail-closed rules (every one raises a :class:`~writ_sdk.errors.WritError`):
 
 * binary missing or not startable            -> ``WritUnavailable``
 * process exits with requests in flight      -> ``WritGatewayCrashed``

@@ -58,7 +58,7 @@ class WritToolGate:
     """``wrap_tool_call`` / ``awrap_tool_call`` for LangGraph's ToolNode.
 
     Args:
-        writ: the :class:`~writ_agent.Writ` gate.
+        writ: the :class:`~writ_sdk.Writ` gate.
         session_id: fixed session id (default: thread id from config, then
             ``writ.session_id``).
         tool_name: optional ``(langchain tool name) -> writ tool name`` mapping.
@@ -79,7 +79,7 @@ class WritToolGate:
 
     def _caller(self) -> Caller:
         c = self.writ.caller
-        if c.agent == "writ-agent":
+        if c.agent == "writ-sdk":
             return Caller(agent="langgraph", agent_version=_LG_VERSION, user=c.user, non_human_id=c.non_human_id)
         return c
 

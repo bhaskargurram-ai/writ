@@ -7,7 +7,7 @@ fails closed the same way: no answer from writ, no tool call.
 
 | Package | Frameworks |
 |---|---|
-| [`python/`](python/) — `writ-agent` | LangGraph, OpenAI Agents SDK, Claude Agent SDK, any callable (`@writ_tool`) |
+| [`python/`](python/) — `writ-sdk` | LangGraph, OpenAI Agents SDK, Claude Agent SDK, any callable (`@writ_tool`) |
 | [`typescript/`](typescript/) — `@writ-agent/sdk` | Claude Agent SDK, any function or AI-SDK-style tool (`guard`, `guardTools`) |
 
 Claude Code needs no package: `writ integrate claude-code` wires

@@ -1,23 +1,25 @@
-# writ-agent
+# writ-sdk
 
-Python integrations for [writ](../../README.md). Every tool call an agent makes
+Python integrations for [writ](https://github.com/writ-agent/writ/blob/main/README.md). Every tool call an agent makes
 is checked against `writ.yaml` (allow / deny / ask / redact) before the tool
 runs, and recorded to writ's hash-chained ledger.
 
 The package has no runtime dependencies. It starts `writ check --stdio` as a
 long-lived child process and speaks the hook-gateway protocol
-([`docs/INTERFACES.md`, Contract 6](../../docs/INTERFACES.md)). Framework
+([`docs/INTERFACES.md`, Contract 6](https://github.com/writ-agent/writ/blob/main/docs/INTERFACES.md)). Framework
 integrations import their framework only when you import them.
 
 ## Install
 
-> **Not yet published.** Until the first release, install from this repository (see the root README's Integrations section).
+> **You also need the `writ` binary.** Until prebuilt releases ship, install it
+> from source: `cargo install --git https://github.com/writ-agent/writ writ-cli`
+> (Rust stable), then check with `writ --version`.
 
 ```bash
-pip install writ-agent                     # core: WritClient, Writ, @writ_tool
-pip install "writ-agent[langgraph]"        # + LangGraph / LangChain
-pip install "writ-agent[openai-agents]"    # + OpenAI Agents SDK
-pip install "writ-agent[claude-agent-sdk]" # + Claude Agent SDK
+pip install writ-sdk                     # core: WritClient, Writ, @writ_tool
+pip install "writ-sdk[langgraph]"        # + LangGraph / LangChain
+pip install "writ-sdk[openai-agents]"    # + OpenAI Agents SDK
+pip install "writ-sdk[claude-agent-sdk]" # + Claude Agent SDK
 ```
 
 You also need the `writ` binary. The client looks for it in this order: the
@@ -52,7 +54,7 @@ refuses to start writ again.
 ## Core API
 
 ```python
-from writ_agent import Writ, writ_tool
+from writ_sdk import Writ, writ_tool
 
 writ = Writ(policy="writ.yaml", session_id="run-42")   # one writ check process
 
@@ -81,7 +83,7 @@ an approver and it runs `--ask defer`; the approver sees the call and the
 rule's diff, and its answer goes to writ with `resolve`:
 
 ```python
-from writ_agent import Approval, Writ
+from writ_sdk import Approval, Writ
 
 def approve(req):                      # sync or async
     print(req.decision.rule_id, req.diff, req.call.args)
@@ -104,8 +106,8 @@ The session id is the graph's `thread_id`.
 ```python
 from langchain_core.tools import tool
 from langgraph.prebuilt import tools_condition
-from writ_agent import Writ
-from writ_agent.langgraph import writ_tool_node
+from writ_sdk import Writ
+from writ_sdk.langgraph import writ_tool_node
 
 @tool
 def read_file(path: str) -> str:
@@ -137,8 +139,8 @@ they cannot carry a redact verdict.
 
 ```python
 from agents import Agent, RunConfig, Runner, function_tool
-from writ_agent import Writ
-from writ_agent.openai_agents import guard_agent
+from writ_sdk import Writ
+from writ_sdk.openai_agents import guard_agent
 
 @function_tool
 def read_file(path: str) -> str:
@@ -168,8 +170,8 @@ permission rules would prompt, and it has no post-execution step.
 
 ```python
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient
-from writ_agent import Writ
-from writ_agent.claude_agent_sdk import writ_hooks
+from writ_sdk import Writ
+from writ_sdk.claude_agent_sdk import writ_hooks
 
 writ = Writ()
 options = ClaudeAgentOptions(hooks=writ_hooks(writ))
@@ -180,7 +182,7 @@ async with ClaudeSDKClient(options) as client:
 ```
 
 Tool names are mapped exactly as `writ check --format claude-code` maps them
-([`toolmap.py`](src/writ_agent/toolmap.py)), so one `writ.yaml` covers Claude
+([`toolmap.py`](https://github.com/writ-agent/writ/blob/main/adapters/python/src/writ_sdk/toolmap.py)), so one `writ.yaml` covers Claude
 Code and the SDK:
 
 | Claude tool                                   | writ `tool`  | policy field           |
@@ -219,4 +221,4 @@ openai-agents 0.22.3, claude-agent-sdk 0.2.157. Requires Python >= 3.10.
 
 ## License
 
-Apache-2.0. See [LICENSE](LICENSE).
+Apache-2.0. See [LICENSE](https://github.com/writ-agent/writ/blob/main/adapters/python/LICENSE).

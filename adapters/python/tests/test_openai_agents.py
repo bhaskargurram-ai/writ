@@ -9,8 +9,8 @@ pytest.importorskip("agents")
 from agents import Agent, RunConfig, Runner, WebSearchTool, function_tool
 from agents.testing import ScriptedModel, assistant_message, function_call
 
-from writ_agent import Writ, WritError
-from writ_agent.openai_agents import guard_agent, guard_function_tool
+from writ_sdk import Writ, WritError
+from writ_sdk.openai_agents import guard_agent, guard_function_tool
 
 RAN: list[str] = []
 

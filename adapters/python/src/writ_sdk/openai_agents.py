@@ -72,7 +72,7 @@ class _Gate:
 
     def caller(self) -> Caller:
         c = self.writ.caller
-        if c.agent == "writ-agent":
+        if c.agent == "writ-sdk":
             return Caller(agent="openai-agents", agent_version=_SDK_VERSION, user=c.user, non_human_id=c.non_human_id)
         return c
 

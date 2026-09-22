@@ -19,7 +19,7 @@ Nothing has been tagged yet; everything below is on `main`.
 - **Claude Code integration**: `writ check --format claude-code` hooks and
   `writ integrate claude-code`. A writ `ask` becomes Claude Code's own
   permission prompt; every writ-side failure blocks the call (exit 2).
-- **`writ-agent` Python package**: LangGraph, OpenAI Agents SDK and Claude
+- **`writ-sdk` Python package**: LangGraph, OpenAI Agents SDK and Claude
   Agent SDK integrations plus `@writ_tool` for any callable.
 - **`@writ-agent/sdk` TypeScript package**: Claude Agent SDK hooks,
   `guard()` and `guardTools()`.

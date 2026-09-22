@@ -7,7 +7,7 @@ import threading
 
 import pytest
 
-from writ_agent import (
+from writ_sdk import (
     AsyncWritClient,
     ToolCall,
     WritClient,
@@ -128,7 +128,7 @@ def test_closed_client_refuses(fake_bin):
     c.close()
     with pytest.raises(Exception) as ei:
         c.decide(call("allowed"))
-    from writ_agent import WritError
+    from writ_sdk import WritError
 
     assert isinstance(ei.value, WritError)
 

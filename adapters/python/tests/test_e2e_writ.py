@@ -13,7 +13,7 @@ import textwrap
 
 import pytest
 
-from writ_agent import Approval, Writ, WritApprovalRejected, WritDenied, find_writ_binary
+from writ_sdk import Approval, Writ, WritApprovalRejected, WritDenied, find_writ_binary
 
 pytestmark = pytest.mark.skipif(
     os.environ.get("WRIT_E2E") != "1", reason="set WRIT_E2E=1 (and WRIT_BIN) to run against the real writ binary"

@@ -11,8 +11,8 @@ from langchain_core.tools import tool
 from langgraph.graph import END, START, MessagesState, StateGraph
 from langgraph.prebuilt import tools_condition
 
-from writ_agent import Writ
-from writ_agent.langgraph import guard_tool, writ_tool_node
+from writ_sdk import Writ
+from writ_sdk.langgraph import guard_tool, writ_tool_node
 
 RAN: list[str] = []
 

@@ -16,8 +16,8 @@ pytest.importorskip("claude_agent_sdk")
 from claude_agent_sdk import ClaudeAgentOptions, ClaudeSDKClient, ResultMessage
 from claude_agent_sdk._internal.transport import Transport
 
-from writ_agent import Approval, Writ
-from writ_agent.claude_agent_sdk import WritClaudeHooks
+from writ_sdk import Approval, Writ
+from writ_sdk.claude_agent_sdk import WritClaudeHooks
 
 MASK = "[redacted-by-writ]"
 

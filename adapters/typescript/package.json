@@ -83,5 +83,13 @@
     "@types/node": "^24.13.6",
     "typescript": "~5.9",
     "zod": "^4.6.5"
+  },
+  "author": "Bhaskar Gurram <gurrambhaskar.ai@gmail.com>",
+  "publishConfig": {
+    "access": "public"
+  },
+  "homepage": "https://github.com/writ-agent/writ/tree/main/adapters/typescript#readme",
+  "bugs": {
+    "url": "https://github.com/writ-agent/writ/issues"
   }
 }

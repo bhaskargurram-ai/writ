@@ -1,4 +1,4 @@
-"""writ-agent: policy-gated tool calls for Python agent frameworks.
+"""writ-sdk: policy-gated tool calls for Python agent frameworks.
 
 Every tool call is sent to ``writ check --stdio`` (docs/INTERFACES.md,
 Contract 6), checked against ``writ.yaml`` (allow / deny / ask / redact) and
@@ -6,8 +6,8 @@ recorded to writ's hash-chained ledger before the tool runs. Any failure to
 get a clear "dispatch" answer from writ blocks the call.
 
 Framework integrations live in submodules and import their framework only
-when imported: ``writ_agent.langgraph``, ``writ_agent.openai_agents``,
-``writ_agent.claude_agent_sdk``.
+when imported: ``writ_sdk.langgraph``, ``writ_sdk.openai_agents``,
+``writ_sdk.claude_agent_sdk``.
 """
 
 from .client import AsyncWritClient, WritClient, find_writ_binary

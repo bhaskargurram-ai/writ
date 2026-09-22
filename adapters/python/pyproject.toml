@@ -3,14 +3,14 @@ requires = ["hatchling>=1.26"]
 build-backend = "hatchling.build"
 
 [project]
-name = "writ-agent"
+name = "writ-sdk"
 version = "0.1.0"
 description = "Policy-gated tool calls for Python agents: every tool call is checked against writ.yaml and recorded to writ's hash-chained ledger."
 readme = "README.md"
 requires-python = ">=3.10"
 license = "Apache-2.0"
 license-files = ["LICENSE"]
-authors = [{ name = "writ contributors" }]
+authors = [{ name = "Bhaskar Gurram", email = "gurrambhaskar.ai@gmail.com" }]
 keywords = ["ai-agents", "authorization", "policy", "audit", "langgraph", "openai-agents", "claude-agent-sdk"]
 classifiers = [
     "Development Status :: 3 - Alpha",
@@ -43,7 +43,7 @@ Homepage = "https://github.com/writ-agent/writ"
 Source = "https://github.com/writ-agent/writ/tree/main/adapters/python"
 
 [tool.hatch.build.targets.wheel]
-packages = ["src/writ_agent"]
+packages = ["src/writ_sdk"]
 
 [tool.pytest.ini_options]
 testpaths = ["tests"]

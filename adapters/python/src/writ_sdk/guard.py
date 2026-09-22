@@ -113,7 +113,7 @@ class Writ:
         session_id: str | None = None,
         caller: Caller | None = None,
         approver: Approver | None = None,
-        approver_id: str = "adapter:writ-agent",
+        approver_id: str = "adapter:writ-sdk",
         approval_timeout: float | None = None,
         send_output: bool = True,
         **client_kwargs: Any,
@@ -130,7 +130,7 @@ class Writ:
         self.client: WritClient = sync
         self.aclient: AsyncWritClient = client if isinstance(client, AsyncWritClient) else AsyncWritClient(sync)
         self.session_id = session_id or f"py-{uuid.uuid4().hex[:16]}"
-        self.caller = caller or Caller(agent="writ-agent")
+        self.caller = caller or Caller(agent="writ-sdk")
         self.approver: Approver = approver or deny_all
         self.approver_id = approver_id
         self.approval_timeout = approval_timeout
