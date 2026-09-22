@@ -1,32 +1,19 @@
 # writ adapter: LangGraph
 
-Lightweight scaffold for a Python LangGraph SDK-hook adapter. No LangGraph
-dependency is vendored here yet.
+Implemented in the Python package [`writ-agent`](../python/) as
+`writ_agent.langgraph`:
 
-## Hook contract
+```bash
+pip install "writ-agent[langgraph]"
+```
 
-Install the adapter as the last pre-tool hook around every LangGraph tool node
-or tool executor, immediately before the native callable is invoked.
+```python
+from writ_agent import Writ
+from writ_agent.langgraph import writ_tool_node
 
-For each pending tool call, normalize the SDK event to the frozen writ
-`ToolCall` envelope:
+graph.add_node("tools", writ_tool_node(tools, Writ()))  # instead of ToolNode(tools)
+```
 
-- `call_id`: LangGraph tool-call id if present, otherwise a generated stable id.
-- `session_id`: graph/thread/run id that groups the agent session.
-- `caller`: agent name/version and user/non-human identity available from graph
-  config.
-- `mode`: `SdkHook`.
-- `tool`: LangGraph tool name.
-- `args`: JSON object passed to the tool, with secrets/credentials omitted.
-- `server`: normally `None` for in-process tools; set when proxying to MCP.
-- `trust`: upstream trust verdict when available.
-- `captured_at`: adapter capture timestamp.
-
-Send that `ToolCall` to writ (`handle_call` in-process or a local writ daemon)
-and execute only when the returned outcome dispatches: allow, approved ask, or
-redact (execute, then redact tool results before they re-enter model context). Deny, ask timeout,
-missing writ, malformed response, policy/ledger error, or adapter exception is
-fail-closed: raise a tool error and do not call the LangGraph tool.
-
-The adapter must produce exactly one writ decision for every intercepted
-LangGraph tool call and must not leak credentials into `ToolCall.args`.
+Every tool call goes through `ToolNode(wrap_tool_call=...)`: writ decides
+before the tool runs; a blocked call becomes an error `ToolMessage` with
+writ's reason. See [`../python/README.md`](../python/README.md).

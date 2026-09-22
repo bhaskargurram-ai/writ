@@ -1,0 +1,51 @@
+[build-system]
+requires = ["hatchling>=1.26"]
+build-backend = "hatchling.build"
+
+[project]
+name = "writ-agent"
+version = "0.1.0"
+description = "Policy-gated tool calls for Python agents: every tool call is checked against writ.yaml and recorded to writ's hash-chained ledger."
+readme = "README.md"
+requires-python = ">=3.10"
+license = "Apache-2.0"
+license-files = ["LICENSE"]
+authors = [{ name = "writ contributors" }]
+keywords = ["ai-agents", "authorization", "policy", "audit", "langgraph", "openai-agents", "claude-agent-sdk"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Operating System :: OS Independent",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3 :: Only",
+    "Topic :: Security",
+    "Typing :: Typed",
+]
+# Zero required runtime dependencies: the package talks to the `writ` binary
+# over stdin/stdout. Framework integrations import their framework lazily.
+dependencies = []
+
+[project.optional-dependencies]
+langgraph = ["langgraph>=1.0", "langchain-core>=1.0"]
+openai-agents = ["openai-agents>=0.22"]
+claude-agent-sdk = ["claude-agent-sdk>=0.2"]
+dev = [
+    "pytest>=8",
+    "pytest-asyncio>=0.24",
+    "langgraph>=1.0",
+    "langchain-core>=1.0",
+    "openai-agents>=0.22",
+    "claude-agent-sdk>=0.2",
+]
+
+[project.urls]
+Homepage = "https://github.com/writ-agent/writ"
+Source = "https://github.com/writ-agent/writ/tree/main/adapters/python"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/writ_agent"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+asyncio_default_fixture_loop_scope = "function"
