@@ -2,7 +2,7 @@
 replicaCount: 1
 
 image:
-  repository: ghcr.io/writai/writ
+  repository: ghcr.io/writ-agent/writ
   tag: "wave3-stub"
   pullPolicy: IfNotPresent
 

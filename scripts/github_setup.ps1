@@ -1,10 +1,10 @@
 # github_setup.ps1 — one-time remote setup for the Writ repo.
-# Run AFTER creating the `writai` org in the GitHub web UI
+# Run AFTER creating the `writ-agent` org in the GitHub web UI
 # (orgs cannot be created via API/CLI). Until then the repo lives at
 # github.com/bhaskargurram-ai/writ and transfers cleanly (stars, history,
 # issues all preserved by GitHub's transfer feature).
 $ErrorActionPreference = 'Stop'
-$org = 'writai'
+$org = 'writ-agent'
 $repo = 'writ'
 
 Write-Host '== 1. Org check =='
@@ -25,7 +25,7 @@ git remote set-url origin "https://github.com/$org/$repo.git"
 Write-Host '== 3. Repo metadata =='
 gh repo edit "$org/$repo" `
     --description 'Authorization and provenance for AI agents. One policy file, one signed ledger, any agent.' `
-    --homepage 'https://writ.dev' `
+    --homepage 'https://writ-bhaskar17.vercel.app' `
     --add-topic ai-agents --add-topic mcp --add-topic policy `
     --add-topic audit --add-topic provenance --add-topic rust --add-topic security
 

@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
 # One-time remote setup for Writ.
 #
-# GitHub organisations cannot be created with `gh`; create `writai` in the
+# GitHub organisations cannot be created with `gh`; create `writ-agent` in the
 # web UI first: https://github.com/organizations/new
 set -euo pipefail
 
-org="${WRIT_ORG:-writai}"
+org="${WRIT_ORG:-writ-agent}"
 repo="${WRIT_REPO_NAME:-writ}"
 current_owner="${WRIT_CURRENT_OWNER:-bhaskargurram-ai}"
 
@@ -33,7 +33,7 @@ git remote set-url origin "https://github.com/$org/$repo.git"
 echo "== 3. Metadata =="
 gh repo edit "$org/$repo" \
   --description 'Authorization and provenance for AI agents. One policy file, one signed ledger, any agent.' \
-  --homepage 'https://writ.dev' \
+  --homepage 'https://writ-bhaskar17.vercel.app' \
   --add-topic ai-agents --add-topic mcp --add-topic policy \
   --add-topic audit --add-topic provenance --add-topic rust --add-topic security
 

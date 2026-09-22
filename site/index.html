@@ -1,0 +1,264 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>writ — Nothing runs without a writ</title>
+<meta name="description" content="Authorization and provenance for AI agents. One policy file, one tamper-evident ledger, any agent.">
+<style>
+  :root {
+    --bg: #0b0f14;
+    --bg-soft: #10161d;
+    --panel: #131b23;
+    --line: #1e2933;
+    --text: #dbe4ec;
+    --muted: #8a99a8;
+    --dim: #5c6b7a;
+    --accent: #4ec9a5;
+    --allow: #3fb950;
+    --deny: #f85149;
+    --ask: #d29922;
+    --redact: #a371f7;
+    --mono: ui-monospace, "Cascadia Mono", "JetBrains Mono", Consolas, "SF Mono", Menlo, monospace;
+    --sans: -apple-system, "Segoe UI", Inter, Roboto, "Helvetica Neue", sans-serif;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  html { scroll-behavior: smooth; }
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--sans);
+    font-size: 16px;
+    line-height: 1.6;
+    -webkit-font-smoothing: antialiased;
+  }
+  a { color: var(--accent); text-decoration: none; }
+  a:hover { text-decoration: underline; }
+  code, pre, kbd { font-family: var(--mono); }
+  .wrap { max-width: 960px; margin: 0 auto; padding: 0 24px; }
+
+  /* nav */
+  nav {
+    position: sticky; top: 0; z-index: 10;
+    background: rgba(11, 15, 20, .88);
+    backdrop-filter: blur(8px);
+    border-bottom: 1px solid var(--line);
+  }
+  nav .wrap { display: flex; align-items: center; gap: 20px; height: 56px; }
+  .logo { font-family: var(--mono); font-weight: 700; font-size: 18px; color: var(--text); }
+  .logo b { color: var(--accent); }
+  nav .links { margin-left: auto; display: flex; gap: 20px; font-size: 14px; }
+  nav .links a { color: var(--muted); }
+  nav .links a:hover { color: var(--text); }
+
+  /* hero */
+  .hero { padding: 88px 0 64px; text-align: center; }
+  .hero h1 {
+    font-family: var(--mono);
+    font-size: clamp(30px, 6vw, 52px);
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+  }
+  .hero h1 .verdict { color: var(--accent); }
+  .hero p.sub { color: var(--muted); font-size: 19px; max-width: 620px; margin: 20px auto 0; }
+  .install {
+    display: inline-flex; align-items: center; gap: 12px;
+    margin-top: 32px; padding: 12px 18px;
+    background: var(--panel); border: 1px solid var(--line); border-radius: 10px;
+    font-family: var(--mono); font-size: 14px;
+  }
+  .install .prompt { color: var(--dim); user-select: none; }
+  .demo { margin-top: 56px; border: 1px solid var(--line); border-radius: 12px; overflow: hidden; background: var(--bg-soft); }
+  .demo img { display: block; width: 100%; height: auto; }
+  .demo figcaption { color: var(--dim); font-size: 13px; padding: 10px 16px; border-top: 1px solid var(--line); text-align: left; }
+
+  /* sections */
+  section { padding: 64px 0; border-top: 1px solid var(--line); }
+  h2 { font-family: var(--mono); font-size: 24px; margin-bottom: 8px; }
+  .kicker { color: var(--dim); font-size: 13px; text-transform: uppercase; letter-spacing: .12em; margin-bottom: 12px; }
+  section > .wrap > p.lead { color: var(--muted); max-width: 680px; margin-bottom: 28px; }
+
+  /* pipeline */
+  .pipeline { display: grid; grid-template-columns: repeat(auto-fit, minmax(240px, 1fr)); gap: 16px; }
+  .step { background: var(--panel); border: 1px solid var(--line); border-radius: 10px; padding: 20px; }
+  .step .n { font-family: var(--mono); color: var(--dim); font-size: 12px; }
+  .step h3 { font-size: 15px; margin: 6px 0 8px; font-family: var(--mono); }
+  .step p { color: var(--muted); font-size: 14px; }
+
+  /* policy sample */
+  .codebox {
+    background: var(--bg-soft); border: 1px solid var(--line); border-radius: 12px;
+    overflow: auto; padding: 20px 24px; font-size: 13.5px; line-height: 1.55;
+  }
+  .codebox .cm { color: var(--dim); }
+  .codebox .k { color: var(--redact); }
+  .codebox .s { color: var(--allow); }
+  .codebox .v { color: var(--ask); }
+
+  /* verdict chips */
+  .chips { display: flex; flex-wrap: wrap; gap: 10px; margin: 18px 0 26px; }
+  .chip {
+    font-family: var(--mono); font-size: 13px; padding: 5px 12px; border-radius: 999px;
+    border: 1px solid var(--line); background: var(--panel);
+  }
+  .chip.allow { color: var(--allow); }
+  .chip.deny  { color: var(--deny); }
+  .chip.ask   { color: var(--ask); }
+  .chip.redact{ color: var(--redact); }
+
+  /* commands */
+  table { width: 100%; border-collapse: collapse; font-size: 14px; }
+  td { padding: 10px 8px; border-bottom: 1px solid var(--line); vertical-align: top; }
+  td.c { font-family: var(--mono); color: var(--accent); white-space: nowrap; padding-right: 28px; }
+  td.d { color: var(--muted); }
+
+  /* honesty list */
+  ul.honest { list-style: none; max-width: 720px; }
+  ul.honest li {
+    padding: 12px 0 12px 26px; border-bottom: 1px solid var(--line);
+    color: var(--muted); font-size: 14.5px; position: relative;
+  }
+  ul.honest li::before { content: "—"; position: absolute; left: 0; color: var(--dim); }
+  ul.honest b { color: var(--text); font-weight: 600; }
+
+  /* footer */
+  footer { border-top: 1px solid var(--line); padding: 40px 0 64px; color: var(--dim); font-size: 13.5px; }
+  footer .cols { display: flex; flex-wrap: wrap; gap: 12px 32px; align-items: baseline; }
+  footer a { color: var(--muted); }
+  footer .fine { margin-top: 14px; }
+</style>
+</head>
+<body>
+
+<nav>
+  <div class="wrap">
+    <span class="logo">writ<b>.</b></span>
+    <div class="links">
+      <a href="#policy">Policy</a>
+      <a href="#ledger">Ledger</a>
+      <a href="#commands">Commands</a>
+      <a href="#honest">Limits</a>
+      <a href="https://github.com/writ-agent/writ">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="hero">
+  <div class="wrap">
+    <h1>Nothing runs<br>without a <span class="verdict">writ</span>.</h1>
+    <p class="sub">Your agent asks. Your policy decides. The ledger remembers.</p>
+    <div class="install"><span class="prompt">$</span><span>cargo install --path crates/writ-cli && writ run -- claude</span></div>
+    <figure class="demo">
+      <img src="assets/demo-gate.svg" alt="A writ-governed session: two calls allowed, one redacted, one held for a human and denied, one egress call refused with its rule and reason">
+      <figcaption>A session under writ: every call decided before it runs, every decision recorded after.</figcaption>
+    </figure>
+  </div>
+</header>
+
+<section id="how">
+  <div class="wrap">
+    <div class="kicker">How it works</div>
+    <h2>Three steps, one decision point</h2>
+    <p class="lead">Writ wraps agents; it never asks you to adopt a runtime. The same decision point and the same record apply in every interception mode.</p>
+    <div class="pipeline">
+      <div class="step"><span class="n">01</span><h3>INTERCEPT</h3><p>MCP proxy, process wrap, SDK hook — the agent itself is unchanged.</p></div>
+      <div class="step"><span class="n">02</span><h3>DECIDE</h3><p>One writ.yaml checked before every call: allow, deny, ask, redact. First match wins; unmatched calls fail closed.</p></div>
+      <div class="step"><span class="n">03</span><h3>RECORD</h3><p>Every call — including denials — lands in a hash-chained ledger, with an OTel GenAI span alongside.</p></div>
+    </div>
+  </div>
+</section>
+
+<section id="policy">
+  <div class="wrap">
+    <div class="kicker">Policy</div>
+    <h2>writ.yaml is the whole surface</h2>
+    <p class="lead">Four verdicts, first match wins. The file lives in your repo, so the policy travels with the code and reviews like code. A denial carries the rule id, the human reason and the line that produced it — the agent can correct itself instead of retrying blind.</p>
+    <div class="chips">
+      <span class="chip allow">allow</span>
+      <span class="chip deny">deny</span>
+      <span class="chip ask">ask — a human gates it</span>
+      <span class="chip redact">redact — masked before it re-enters the model</span>
+    </div>
+    <div class="codebox"><pre><code><span class="cm"># writ.yaml</span>
+<span class="k">version</span>: 1
+<span class="k">default</span>: ask                          <span class="cm"># fail closed</span>
+<span class="k">rules</span>:
+  - <span class="k">id</span>: block-destructive-shell
+    <span class="k">when</span>: tool == <span class="s">"bash"</span> and command matches <span class="s">"rm -rf|mkfs|dd if="</span>
+    <span class="k">verdict</span>: <span class="v">deny</span>
+    <span class="k">reason</span>: <span class="s">"Destructive system command. Narrow the path and retry."</span>
+
+  - <span class="k">id</span>: protect-production-db
+    <span class="k">when</span>: tool startswith <span class="s">"postgres"</span> and query matches <span class="s">"(?i)(DROP|TRUNCATE)"</span>
+    <span class="k">verdict</span>: <span class="v">ask</span>
+    <span class="k">irreversible</span>: true                <span class="cm"># excluded from automated replay</span>
+
+  - <span class="k">id</span>: egress-allowlist
+    <span class="k">when</span>: tool == <span class="s">"http"</span> and not url.host in hosts.allowed
+    <span class="k">verdict</span>: <span class="v">deny</span>
+
+  - <span class="k">id</span>: mask-pii
+    <span class="k">when</span>: tool startswith <span class="s">"postgres"</span>
+    <span class="k">verdict</span>: <span class="v">redact</span>
+    <span class="k">patterns</span>: [<span class="s">"[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\\.[A-Za-z]{2,}"</span>]</pre></div>
+  </div>
+</section>
+
+<section id="ledger">
+  <div class="wrap">
+    <div class="kicker">Evidence</div>
+    <h2>The part that survives the session</h2>
+    <p class="lead">Logs are what an application chose to write. A ledger is evidence: every call, its verdict, the rule that decided it, who approved it, and the hash of the record before it. Edit one line and <code>writ verify</code> names the record where the chain broke.</p>
+    <figure class="demo">
+      <img src="assets/demo-verify.svg" alt="writ verify reports a chain intact, then reports a broken chain at record 12 after a ledger line is edited">
+      <figcaption><code>writ verify</code> — tamper-evident by construction. Nothing is captured beyond metadata and hashes unless you turn content capture on, and there is no telemetry to opt out of.</figcaption>
+    </figure>
+  </div>
+</section>
+
+<section id="commands">
+  <div class="wrap">
+    <div class="kicker">Surface</div>
+    <h2>Commands</h2>
+    <table>
+      <tr><td class="c">writ run -- <agent></td><td class="d">wrap an agent process under policy</td></tr>
+      <tr><td class="c">writ proxy --mcp --server <name> -- <cmd></td><td class="d">govern every call to an MCP server</td></tr>
+      <tr><td class="c">writ log · writ show <call-id></td><td class="d">what did my agent actually do last night</td></tr>
+      <tr><td class="c">writ verify</td><td class="d">is this ledger still the one that was written</td></tr>
+      <tr><td class="c">writ replay <session> --candidate <file></td><td class="d">what would this policy have done to last week's run</td></tr>
+      <tr><td class="c">writ policy test</td><td class="d">unit-test rules against recorded fixtures</td></tr>
+      <tr><td class="c">writ doctor</td><td class="d">what is governed, and what is blind</td></tr>
+      <tr><td class="c">writ report</td><td class="d">one self-contained HTML file to hand to someone else</td></tr>
+    </table>
+  </div>
+</section>
+
+<section id="honest">
+  <div class="wrap">
+    <div class="kicker">Limits</div>
+    <h2>What writ does not do</h2>
+    <p class="lead">Writ governs actions, not reasoning. The threat model is public: <a href="https://github.com/writ-agent/writ/blob/main/docs/THREAT_MODEL.md">docs/THREAT_MODEL.md</a>.</p>
+    <ul class="honest">
+      <li><b>It does not stop prompt injection.</b> It shrinks the blast radius: least privilege, egress allow-lists, a human gate on irreversible calls.</li>
+      <li><b>The ledger is tamper-evident, not tamper-proof.</b> Editing a record breaks the chain and is caught; transparency-log anchoring, on the roadmap, is what closes the deletion gap.</li>
+      <li><b>MCP-proxy-only mode is partial coverage.</b> The agent's own shell, file writes and direct HTTP go around it — <code>writ doctor</code> says this out loud.</li>
+      <li><b>It does not reverse side effects.</b> A denied call never ran; an approved one is yours.</li>
+    </ul>
+  </div>
+</section>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <span class="logo" style="font-size:15px">writ<b>.</b></span>
+      <a href="https://github.com/writ-agent/writ">GitHub</a>
+      <a href="https://github.com/writ-agent/writ/blob/main/docs/THREAT_MODEL.md">Threat model</a>
+      <a href="https://github.com/writ-agent/writ/blob/main/docs/policy-reference.md">Policy reference</a>
+      <a href="https://github.com/writ-agent/writ/blob/main/LICENSE">Apache-2.0</a>
+    </div>
+    <p class="fine">Status: pre-release. WRIT — Warranted Runtime for Intelligent Tools. No daemon, no images, no account, no telemetry.</p>
+  </div>
+</footer>
+
+</body>
+</html>

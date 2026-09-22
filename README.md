@@ -6,7 +6,7 @@
 
 Your agent asks. Your policy decides. The ledger remembers.
 
-[![ci](https://github.com/bhaskargurram-ai/writ/actions/workflows/ci.yml/badge.svg)](https://github.com/bhaskargurram-ai/writ/actions/workflows/ci.yml)
+[![ci](https://github.com/writ-agent/writ/actions/workflows/ci.yml/badge.svg)](https://github.com/writ-agent/writ/actions/workflows/ci.yml)
 [![license](https://img.shields.io/badge/license-Apache--2.0-1f6feb)](LICENSE)
 [![rust](https://img.shields.io/badge/rust-stable-b7410e)](rust-toolchain.toml)
 [![status](https://img.shields.io/badge/status-pre--release-d29922)](#status)

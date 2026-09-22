@@ -10,7 +10,7 @@ set -eu
 BIN_DIR="${WRIT_BIN_DIR:-$HOME/.writ/bin}"
 mkdir -p "$BIN_DIR"
 
-repo="${WRIT_REPO:-bhaskargurram-ai/writ}"
+repo="${WRIT_REPO:-writ-agent/writ}"
 version="${WRIT_VERSION:-latest}"
 os="$(uname -s | tr '[:upper:]' '[:lower:]')"
 arch="$(uname -m)"

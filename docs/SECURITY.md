@@ -2,8 +2,9 @@
 
 ## Reporting a vulnerability
 
-Report suspected vulnerabilities privately to **security@writai.dev**
-(or via GitHub private vulnerability reporting once the organisation is live).
+Report suspected vulnerabilities privately via **GitHub private vulnerability
+reporting** (writ-agent/writ → Security → Report a vulnerability), or by email
+to **gurrambhaskar.ai@gmail.com**.
 Do not open a public issue for security reports.
 
 ## Response SLA

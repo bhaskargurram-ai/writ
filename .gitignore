@@ -3,4 +3,7 @@
 .writ/
 *.local
 .env
+.env.*
+!.env.example
+.vercel/
 .DS_Store

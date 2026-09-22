@@ -2,7 +2,7 @@ name: writ
 description: >-
   Govern an agent run in CI: enforce writ.yaml headless, fail closed on
   unanswered asks, and publish the ledger + signed run receipt as artifacts.
-author: writai
+author: writ-agent
 branding:
   icon: shield
   color: blue
@@ -36,14 +36,14 @@ runs:
         # source. Release users can unset this and download signed artifacts.
         WRIT_FROM_SOURCE: "1"
       run: |
-        curl -fsSL https://raw.githubusercontent.com/bhaskargurram-ai/writ/main/scripts/install.sh | sh
+        curl -fsSL https://raw.githubusercontent.com/writ-agent/writ/main/scripts/install.sh | sh
         echo "$HOME/.writ/bin" >> "$GITHUB_PATH"
 
     - name: Verify install (cosign)
       shell: bash
       run: |
         cosign verify-blob --bundle "$HOME/.writ/bin/writ.cosign-bundle" \
-          --certificate-identity-regexp "github.com/bhaskargurram-ai/writ" \
+          --certificate-identity-regexp "github.com/writ-agent/writ" \
           --certificate-oidc-issuer https://token.actions.githubusercontent.com \
           "$HOME/.writ/bin/writ" || echo "::warning::unsigned local build (pre-release)"
 
