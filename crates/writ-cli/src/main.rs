@@ -70,6 +70,22 @@ enum Commands {
         sub: PolicyCmd,
     },
 
+    /// Reproduce a trajectory / replay a candidate policy against it.
+    Replay {
+        /// Session id (see `writ log`).
+        session: String,
+        /// Candidate policy to evaluate against the recorded calls.
+        #[arg(long)]
+        candidate: Option<PathBuf>,
+        /// Re-branch from this decision index; irreversible steps refuse
+        /// unless --ack-irreversible is passed.
+        #[arg(long)]
+        branch_from: Option<u64>,
+        /// Explicit acknowledgement for irreversible steps (spec §10).
+        #[arg(long)]
+        ack_irreversible: bool,
+    },
+
     /// Coverage report: which call paths are governed and which are blind.
     Doctor,
 
@@ -115,6 +131,12 @@ fn main() -> anyhow::Result<()> {
             PolicyCmd::Add { pack } => cmds::policy_add(&pack),
         },
         Commands::Doctor => cmds::doctor(&cli.policy, &cli.ledger),
+        Commands::Replay {
+            session,
+            candidate,
+            branch_from,
+            ack_irreversible,
+        } => cmds::replay(&cli.ledger, &session, candidate, branch_from, ack_irreversible),
         Commands::Report { out } => cmds::report(&cli.ledger, &out),
     }
 }

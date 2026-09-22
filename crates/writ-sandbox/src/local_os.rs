@@ -18,6 +18,29 @@ use writ_core::sandbox::{
     Artifacts, ExecOutput, ExecRequest, SandboxBackend, SandboxId, SandboxSpec,
 };
 
+/// Minimal OS baseline a child process needs to function (Windows refuses to
+/// start cmd.exe without SystemRoot, PATHEXT, etc.). Least privilege means
+/// "nothing but the baseline and what the run declares" — not "nothing at
+/// all", which is just broken.
+fn baseline_env() -> std::collections::BTreeMap<String, String> {
+    #[cfg(windows)]
+    const KEYS: &[&str] = &[
+        "SystemRoot",
+        "windir",
+        "COMSPEC",
+        "PATHEXT",
+        "SystemDrive",
+        "PATH",
+        "TEMP",
+        "TMP",
+    ];
+    #[cfg(not(windows))]
+    const KEYS: &[&str] = &["PATH", "HOME", "LANG", "TERM"];
+    KEYS.iter()
+        .filter_map(|k| std::env::var(k).ok().map(|v| (k.to_string(), v)))
+        .collect()
+}
+
 pub struct LocalOsBackend {
     specs: HashMap<SandboxId, SandboxSpec>,
     next_id: u64,
@@ -84,10 +107,10 @@ impl SandboxBackend for LocalOsBackend {
 
         let mut cmd = Command::new(&req.program);
         cmd.args(&req.args)
-            // Least privilege: child inherits nothing but PATH (so programs
-            // resolve) plus what the run explicitly declares.
+            // Least privilege: OS baseline (programs must resolve and start)
+            // plus what the run explicitly declares — nothing else.
             .env_clear()
-            .env("PATH", std::env::var("PATH").unwrap_or_default())
+            .envs(baseline_env())
             .envs(&spec.env)
             .envs(&req.env)
             .current_dir(req.cwd.clone().unwrap_or_else(|| spec.workspace.clone()))

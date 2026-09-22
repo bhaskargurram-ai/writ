@@ -39,6 +39,11 @@ pub fn handle_call(
 ) -> Result<DecisionOutcome> {
     let ctx = ToolCallContext::from_call(call);
     let mut verdict = policy.evaluate(&ctx);
+    // The ledger records the ENGINE's verdict (spec §9: "the verdict and the
+    // rule that produced it"). If a human approves an `ask`, the record keeps
+    // the ask — including its irreversible marking, which replay/branching
+    // depends on (spec §10) — and the approver identity carries the outcome.
+    let engine_verdict = verdict.clone();
     let mut approval = None;
     let mut edited_args = None;
 
@@ -57,7 +62,7 @@ pub fn handle_call(
 
     let record = ledger.record_decision(
         call,
-        &verdict,
+        &engine_verdict,
         approval.as_ref().map(|a| a.approver.clone()),
     )?;
 

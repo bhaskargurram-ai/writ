@@ -267,6 +267,7 @@ mod tests {
     use super::*;
 
     #[test]
+    #[test]
     fn parses_durations() {
         assert_eq!(parse_duration("30s").unwrap(), 30_000);
         assert_eq!(parse_duration("5m").unwrap(), 300_000);

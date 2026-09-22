@@ -88,6 +88,7 @@ pub fn run(policy: &Path, ledger: &Path, yolo: bool, backend: &str, cmd: &[Strin
         handle_call(&call, &engine, &mut writer, &TuiApprover::new())
             .map_err(|e| anyhow!(e.to_string()))?
     };
+    emit_span(ledger, &call, &outcome.verdict);
 
     eprintln!(
         "{}",
@@ -156,17 +157,20 @@ pub fn proxy(
     let store = Rc::new(RefCell::new(
         FileLedgerStore::open(ledger).map_err(|e| anyhow!(e.to_string()))?,
     ));
-    let decisions: Rc<RefCell<HashMap<String, LedgerRecord>>> =
+    // call_id → (decision record, redact patterns from the verdict)
+    let decisions: Rc<RefCell<HashMap<String, (LedgerRecord, Vec<String>)>>> =
         Rc::new(RefCell::new(HashMap::new()));
 
     // Decision hook: full pipeline per call — evaluate, approve-or-fail-closed,
     // record. Forward only on allow/redact.
     let (store_d, decisions_d, engine_d) = (Rc::clone(&store), Rc::clone(&decisions), engine);
+    let ledger_d = ledger.to_path_buf();
     let decide = Box::new(move |call: &ToolCall| {
         let mut s = store_d.borrow_mut();
         let mut writer = LedgerWriter::new(&mut *s);
         match handle_call(call, &engine_d, &mut writer, &FailClosedApprover) {
             Ok(outcome) => {
+                emit_span(&ledger_d, call, &outcome.verdict);
                 eprintln!(
                     "{}",
                     render_call_line(&call.tool, &summarize(&call.args), &outcome.verdict)
@@ -175,9 +179,13 @@ pub fn proxy(
                     eprintln!("{note}");
                 }
                 if outcome.should_dispatch() {
+                    let patterns = match &outcome.verdict {
+                        Verdict::Redact { patterns, .. } => patterns.clone(),
+                        _ => Vec::new(),
+                    };
                     decisions_d
                         .borrow_mut()
-                        .insert(call.call_id.clone(), outcome.record);
+                        .insert(call.call_id.clone(), (outcome.record, patterns));
                     ProxyDecision::Forward
                 } else {
                     ProxyDecision::Refuse {
@@ -204,13 +212,38 @@ pub fn proxy(
         decide,
     );
     proxy.on_result(Box::new(move |call: &ToolCall, result: &serde_json::Value| {
-        let Some(decision) = decisions_o.borrow().get(&call.call_id).cloned() else {
+        let Some(entry) = decisions_o.borrow().get(&call.call_id).cloned() else {
             return;
         };
         let bytes = serde_json::to_vec(result).unwrap_or_default();
         let mut s = store_o.borrow_mut();
         let mut writer = LedgerWriter::new(&mut *s);
-        let _ = writer.record_execution(&decision, "mcp-proxy", 0, &bytes);
+        let _ = writer.record_execution(&entry.0, "mcp-proxy", 0, &bytes);
+    }));
+
+    // Redact verdicts: mask matched patterns in results before they re-enter
+    // the model's context (spec §7). The ledger already hashed the original.
+    let decisions_t = Rc::clone(&decisions);
+    proxy.set_result_transform(Box::new(move |call: &ToolCall, result: serde_json::Value| {
+        let patterns = decisions_t
+            .borrow()
+            .get(&call.call_id)
+            .map(|e| e.1.clone())
+            .unwrap_or_default();
+        if patterns.is_empty() {
+            return result;
+        }
+        let mut text = result.to_string();
+        for p in &patterns {
+            if let Ok(re) = regex::Regex::new(p) {
+                text = re.replace_all(&text, "[redacted-by-writ]").to_string();
+            }
+        }
+        // Prefer returning valid JSON; if masking broke structure, return the
+        // masked text as a plain content block instead (never the original).
+        serde_json::from_str(&text).unwrap_or_else(|_| {
+            serde_json::json!({"content": [{"type": "text", "text": text}]})
+        })
     }));
 
     proxy.run().map_err(|e| anyhow!(e.to_string()))?;
@@ -475,6 +508,94 @@ pub fn report(ledger: &Path, out: &Path) -> Result<()> {
         "wrote {} — open it anywhere, it is fully self-contained",
         out.display()
     );
+    Ok(())
+}
+
+/// Emit one GenAI-convention span for a governed call (spec §13).
+/// Spans land in spans.jsonl next to the ledger; OTLP export is wave 2.
+fn emit_span(ledger: &Path, call: &ToolCall, verdict: &Verdict) {
+    let path = ledger
+        .parent()
+        .unwrap_or_else(|| Path::new("."))
+        .join("spans.jsonl");
+    let Ok(file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) else {
+        return; // observability must never break the security path
+    };
+    let trace = writ_otel::GenAiTrace::begin(&call.caller.agent);
+    let mut span = trace.execute_tool(call);
+    trace.record_decision(&mut span, verdict);
+    span.finish();
+    let _ = writ_otel::JsonLinesExporter::new(file).export(&span);
+    let mut root = trace.invoke_agent;
+    root.finish();
+    let _ = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+        .and_then(|f| {
+            writ_otel::JsonLinesExporter::new(f)
+                .export(&root)
+                .map_err(|e| std::io::Error::new(std::io::ErrorKind::Other, e.to_string()))
+        });
+}
+
+/// `writ replay <session>` — inspect a trajectory, test a candidate policy
+/// against it, or plan a guarded re-branch (spec §10).
+pub fn replay(
+    ledger: &Path,
+    session: &str,
+    candidate: Option<PathBuf>,
+    branch_from: Option<u64>,
+    ack: bool,
+) -> Result<()> {
+    let steps = writ_replay::load_trajectory(ledger, session).map_err(|e| anyhow!(e.to_string()))?;
+    if steps.is_empty() {
+        bail!("no recorded calls for session '{session}' (see `writ log`)");
+    }
+
+    println!("session {session} · {} recorded calls", steps.len());
+    for s in &steps {
+        if let (Some(call), Some(v)) = (&s.decision.call, &s.decision.verdict) {
+            println!("  #{} {}", s.decision.index, render_call_line(&call.tool, &summarize(&call.args), v));
+            if let Some(exec) = &s.execution {
+                println!("      executed on {} · exit {:?}", exec.backend.as_deref().unwrap_or("?"), exec.exit_status);
+            }
+        }
+    }
+
+    if let Some(candidate_path) = candidate {
+        let source = std::fs::read_to_string(&candidate_path)
+            .with_context(|| format!("read {}", candidate_path.display()))?;
+        let report =
+            writ_replay::policy_replay(&steps, &source).map_err(|e| anyhow!(e.to_string()))?;
+        println!();
+        println!("{}", report.summary());
+        for c in &report.changes {
+            println!(
+                "  {} {} : {} → {} (rule: {})",
+                c.call_id,
+                c.tool,
+                c.was,
+                c.now,
+                c.now_rule.as_deref().unwrap_or("default")
+            );
+        }
+    }
+
+    if let Some(from) = branch_from {
+        match writ_replay::branch_from(&steps, from, ack) {
+            Ok(plan) => println!(
+                "re-branch plan from #{from}: {} step(s) replayable, {} irreversible ({})",
+                plan.replayable.len(),
+                plan.irreversible.len(),
+                if plan.acknowledged { "acknowledged" } else { "none" }
+            ),
+            Err(e) => {
+                eprintln!("{e}");
+                std::process::exit(1);
+            }
+        }
+    }
     Ok(())
 }
 

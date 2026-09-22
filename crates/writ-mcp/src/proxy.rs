@@ -43,6 +43,10 @@ pub struct McpProxy<A: Transport, D: Transport> {
     pub tool_schemas: Vec<Value>,
     decide: Box<dyn FnMut(&ToolCall) -> ProxyDecision>,
     observe: Option<Box<dyn FnMut(&ToolCall, &Value)>>,
+    /// Result transform applied BEFORE the result re-enters the agent's
+    /// context (the `redact` verdict, spec §7). The observation hook sees the
+    /// original; the agent sees the transform's output.
+    transform: Option<Box<dyn FnMut(&ToolCall, Value) -> Value>>,
 }
 
 impl<A: Transport, D: Transport> McpProxy<A, D> {
@@ -61,11 +65,17 @@ impl<A: Transport, D: Transport> McpProxy<A, D> {
             tool_schemas: Vec::new(),
             decide,
             observe: None,
+            transform: None,
         }
     }
 
     pub fn on_result(&mut self, hook: Box<dyn FnMut(&ToolCall, &Value)>) {
         self.observe = Some(hook);
+    }
+
+    /// Register the redaction transform (see field docs for ordering).
+    pub fn set_result_transform(&mut self, hook: Box<dyn FnMut(&ToolCall, Value) -> Value>) {
+        self.transform = Some(hook);
     }
 
     fn make_call(&self, req: &JsonRpcRequest) -> ToolCall {
@@ -157,11 +167,18 @@ impl<A: Transport, D: Transport> McpProxy<A, D> {
             ProxyDecision::Forward => {
                 self.downstream.send(&JsonRpcMessage::Request(req.clone()))?;
                 match self.downstream.recv()? {
-                    Some(JsonRpcMessage::Response(resp)) => {
+                    Some(JsonRpcMessage::Response(mut resp)) => {
+                        // 1. Observe the ORIGINAL (ledger hashes the unmasked
+                        //    result — spec §7 records "a hash of the original").
                         if let (Some(hook), Some(result)) =
                             (&mut self.observe, resp.result.clone())
                         {
                             hook(&call, &result);
+                        }
+                        // 2. Transform (redact) before the agent sees it.
+                        if let (Some(t), Some(result)) = (&mut self.transform, resp.result.take())
+                        {
+                            resp.result = Some(t(&call, result));
                         }
                         self.agent_side.send(&JsonRpcMessage::Response(resp))?;
                         Ok(())

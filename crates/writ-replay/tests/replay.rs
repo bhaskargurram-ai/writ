@@ -1,7 +1,5 @@
 //! Acceptance tests for writ-replay against a real on-disk ledger.
 
-use std::collections::BTreeMap;
-
 use writ_core::call::{CallerIdentity, InterceptMode, ToolCall};
 use writ_core::ledger::LedgerWriter;
 use writ_core::verdict::Verdict;
