@@ -11,7 +11,7 @@ mod cmds;
 #[command(
     name = "writ",
     version,
-    about = "Authorization and provenance for AI agents. One policy file, one signed ledger, any agent.",
+    about = "Authorization and provenance for AI agents. One policy file, one tamper-evident ledger, any agent.",
     long_about = None
 )]
 struct Cli {
@@ -61,7 +61,7 @@ enum Commands {
     /// One decision, in full.
     Show { call_id: String },
 
-    /// Prove the ledger was not edited.
+    /// Verify the local ledger hash chain and name the first broken record.
     Verify,
 
     /// Policy operations.

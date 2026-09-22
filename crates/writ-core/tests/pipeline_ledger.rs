@@ -1,4 +1,4 @@
-use writ_core::approver::{ApprovalDecision, ApprovalOutcome, Approver, ApproverIdentity, ApproverKind, AskView};
+use writ_core::approver::{ApprovalDecision, ApprovalOutcome, Approver, ApproverIdentity, ApproverKind, AskView, FailClosedApprover};
 use writ_core::call::{CallerIdentity, InterceptMode, ToolCall};
 use writ_core::ledger::{LedgerRecord, LedgerStore, LedgerWriter, RecordKind, GENESIS_HASH};
 use writ_core::policy::PolicyEngine;
@@ -94,4 +94,39 @@ fn approved_ask_records_engine_verdict_with_irreversible_flag() {
         }
         other => panic!("ledger must store engine ask verdict, got {other:?}"),
     }
+}
+
+fn postgres_drop_call() -> ToolCall {
+    ToolCall {
+        call_id: "c-headless".into(),
+        session_id: "s-headless".into(),
+        caller: CallerIdentity { agent: "test".into(), agent_version: None, user: None, non_human_id: None },
+        mode: InterceptMode::ProcessWrap,
+        tool: "postgres.query".into(),
+        args: serde_json::json!({"query": "DROP TABLE users"}),
+        server: None,
+        trust: None,
+        captured_at: Timestamp::now(),
+    }
+}
+
+#[test]
+fn headless_ask_fails_closed_and_records_decision() {
+    let call = postgres_drop_call();
+    let mut store = MemStore::default();
+    let outcome = {
+        let mut writer = LedgerWriter::new(&mut store);
+        handle_call(&call, &AskPolicy, &mut writer, &FailClosedApprover).unwrap()
+    };
+
+    assert!(!outcome.should_dispatch(), "headless ask must not dispatch");
+    assert!(matches!(outcome.verdict, Verdict::Deny { .. }));
+    let approval = outcome.approval.expect("fail-closed approver records denial");
+    assert_eq!(approval.decision, ApprovalDecision::Deny);
+    assert_eq!(approval.approver.kind, ApproverKind::OutOfBand);
+
+    assert_eq!(store.0.len(), 1, "decision is still recorded before refusal");
+    assert_eq!(store.0[0].kind, RecordKind::Decision);
+    assert_eq!(store.0[0].approver.as_ref().unwrap().kind, ApproverKind::OutOfBand);
+    assert!(matches!(store.0[0].verdict.as_ref().unwrap(), Verdict::Ask { .. }));
 }

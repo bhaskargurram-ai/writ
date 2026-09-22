@@ -204,6 +204,26 @@ fn verify_reports_exact_index_on_unparseable_tamper() {
 }
 
 #[test]
+fn verify_detects_deleted_middle_record_as_chain_break() {
+    let dir = TempDir::new();
+    let path = populated(&dir);
+    assert!(verify(&path).unwrap().intact);
+
+    let mut lines: Vec<String> = std::fs::read_to_string(&path)
+        .unwrap()
+        .lines()
+        .map(str::to_string)
+        .collect();
+    lines.remove(1);
+    std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+
+    let report = verify(&path).unwrap();
+    assert!(!report.intact);
+    assert_eq!(report.records, 1);
+    assert_eq!(report.broken_at, Some(2));
+}
+
+#[test]
 fn crash_tolerant_tail() {
     let dir = TempDir::new();
     let path = populated(&dir);

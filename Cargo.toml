@@ -18,7 +18,7 @@ edition = "2021"
 license = "Apache-2.0"
 repository = "https://github.com/writai/writ"
 homepage = "https://writ.dev"
-description = "Authorization and provenance for AI agents. One policy file, one signed ledger, any agent."
+description = "Authorization and provenance for AI agents. One policy file, one tamper-evident ledger, any agent."
 
 [workspace.dependencies]
 writ-core = { path = "crates/writ-core" }

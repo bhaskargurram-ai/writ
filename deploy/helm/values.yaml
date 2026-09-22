@@ -1,0 +1,55 @@
+﻿mode: sidecar
+replicaCount: 1
+
+image:
+  repository: ghcr.io/writai/writ
+  tag: "wave3-stub"
+  pullPolicy: IfNotPresent
+
+serviceAccount:
+  name: writ
+  annotations: {}
+
+service:
+  type: ClusterIP
+  port: 8080
+
+policy:
+  default: ask
+  content: |
+    version: 1
+    default: ask
+    rules: []
+
+ledger:
+  backend: postgres-object-store
+  postgres:
+    existingSecret: writ-postgres
+    urlKey: database-url
+  objectStore:
+    existingSecret: writ-object-store
+    bucketKey: bucket
+    endpointKey: endpoint
+    regionKey: region
+
+enterprise:
+  sso:
+    enabled: false
+    provider: oidc
+    existingSecret: writ-sso
+  siem:
+    enabled: false
+    existingSecret: writ-siem
+  vault:
+    enabled: false
+    existingSecret: writ-vault
+  kms:
+    enabled: false
+    existingSecret: writ-kms
+
+networkPolicy:
+  enabled: true
+  allowDns: true
+  egressCidrs: []
+
+resources: {}

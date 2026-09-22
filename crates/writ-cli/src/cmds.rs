@@ -328,7 +328,7 @@ pub fn show(ledger: &Path, call_id: &str) -> Result<()> {
     Ok(())
 }
 
-/// `writ verify` — prove the ledger was not edited.
+/// `writ verify` — verify the local hash chain and name the first break.
 pub fn verify(ledger: &Path) -> Result<()> {
     if !ledger.exists() {
         bail!("no ledger at {}", ledger.display());

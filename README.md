@@ -16,7 +16,7 @@ $ writ log       # 47 calls · 2 denied · 1 approved by you
 $ writ verify    # chain intact · 47 records · no gaps
 ```
 
-**Authorization and provenance for AI agents. One policy file, one signed ledger, any agent.**
+**Authorization and provenance for AI agents. One policy file, one tamper-evident ledger, any agent.**
 For developers who run agents with real credentials, and for the platform teams who answer for it.
 
 ## Install and run
@@ -73,7 +73,7 @@ your agent (unchanged)  — Claude Code · Codex · LangGraph · your own loop
 - `writ run -- <agent>` — wrap any agent process
 - `writ proxy --mcp --server <name> -- <server cmd>` — govern every MCP tool call
 - `writ log` / `writ show <call-id>` — what did my agent actually do
-- `writ verify` — prove the ledger was not edited (names the exact broken record)
+- `writ verify` — check whether the local hash chain was edited (names the exact broken record it can verify)
 - `writ policy test` — unit-test your rules against recorded fixtures
 - `writ doctor` — honest coverage report: what is governed, what is blind
 - `writ report` — shareable single-file HTML run summary
@@ -83,8 +83,8 @@ your agent (unchanged)  — Claude Code · Codex · LangGraph · your own loop
 Writ governs **actions**, not reasoning. It does **not** detect or prevent
 prompt injection — it shrinks the blast radius (least privilege, egress
 allow-lists, a human gate on irreversible actions). The ledger is
-tamper-**evident**: anyone with write access can rewrite the whole chain, but
-`writ verify` will catch it; tamper-**proof** requires an external anchor
+tamper-**evident**: local verification catches broken hashes or chain links, but
+anyone with write access can delete or rewrite the whole unanchored ledger; tamper-**proof** requires an external anchor
 (transparency-log receipts, on the roadmap). And in MCP-proxy-only mode the
 agent's own shell, file writes and direct HTTP are not governed — pair mode A
 with process wrap or SDK hooks. Full details:
