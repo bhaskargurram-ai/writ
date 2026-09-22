@@ -17,7 +17,9 @@ pub enum ProxyDecision {
     Forward,
     /// Full structured refusal message (rule id + reason), shown to the
     /// model so it can self-correct (spec §7).
-    Refuse { message: String },
+    Refuse {
+        message: String,
+    },
 }
 
 /// Configuration for one proxied downstream server.
@@ -112,7 +114,8 @@ impl<A: Transport, D: Transport> McpProxy<A, D> {
     /// server→agent requests get a method-not-found error (documented
     /// wave-1 limitation above).
     fn forward_request(&mut self, req: &JsonRpcRequest) -> Result<()> {
-        self.downstream.send(&JsonRpcMessage::Request(req.clone()))?;
+        self.downstream
+            .send(&JsonRpcMessage::Request(req.clone()))?;
         loop {
             match self.downstream.recv()? {
                 Some(JsonRpcMessage::Response(resp)) => {
@@ -133,8 +136,9 @@ impl<A: Transport, D: Transport> McpProxy<A, D> {
                         r.id,
                         JsonRpcError {
                             code: -32601,
-                            message: "writ proxy: server-initiated requests are not proxied (wave 1)"
-                                .into(),
+                            message:
+                                "writ proxy: server-initiated requests are not proxied (wave 1)"
+                                    .into(),
                             data: None,
                         },
                     );
@@ -165,19 +169,18 @@ impl<A: Transport, D: Transport> McpProxy<A, D> {
         let call = self.make_call(req);
         match (self.decide)(&call) {
             ProxyDecision::Forward => {
-                self.downstream.send(&JsonRpcMessage::Request(req.clone()))?;
+                self.downstream
+                    .send(&JsonRpcMessage::Request(req.clone()))?;
                 match self.downstream.recv()? {
                     Some(JsonRpcMessage::Response(mut resp)) => {
                         // 1. Observe the ORIGINAL (ledger hashes the unmasked
                         //    result — spec §7 records "a hash of the original").
-                        if let (Some(hook), Some(result)) =
-                            (&mut self.observe, resp.result.clone())
+                        if let (Some(hook), Some(result)) = (&mut self.observe, resp.result.clone())
                         {
                             hook(&call, &result);
                         }
                         // 2. Transform (redact) before the agent sees it.
-                        if let (Some(t), Some(result)) = (&mut self.transform, resp.result.take())
-                        {
+                        if let (Some(t), Some(result)) = (&mut self.transform, resp.result.take()) {
                             resp.result = Some(t(&call, result));
                         }
                         self.agent_side.send(&JsonRpcMessage::Response(resp))?;

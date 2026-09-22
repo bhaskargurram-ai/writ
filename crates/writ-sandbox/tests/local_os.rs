@@ -81,7 +81,11 @@ fn timeout_kills_sleeper() {
     let mut b = LocalOsBackend::new();
     let id = b.prepare(&s).unwrap();
     #[cfg(windows)]
-    let r = req("ping", vec!["-n".into(), "30".into(), "127.0.0.1".into()], 300); // ping: timeout refuses piped stdin
+    let r = req(
+        "ping",
+        vec!["-n".into(), "30".into(), "127.0.0.1".into()],
+        300,
+    ); // ping: timeout refuses piped stdin
     #[cfg(not(windows))]
     let r = req("sh", vec!["-c".into(), "sleep 30".into()], 300);
     let err = b.exec(&id, &r).unwrap_err();
@@ -106,9 +110,17 @@ fn child_env_is_clean() {
     let mut b = LocalOsBackend::new();
     let id = b.prepare(&s).unwrap();
     #[cfg(windows)]
-    let r = req("cmd", vec!["/c".into(), "echo [%WRIT_TEST_LEAK%]".into()], 10_000);
+    let r = req(
+        "cmd",
+        vec!["/c".into(), "echo [%WRIT_TEST_LEAK%]".into()],
+        10_000,
+    );
     #[cfg(not(windows))]
-    let r = req("sh", vec!["-c".into(), "echo [$WRIT_TEST_LEAK]".into()], 10_000);
+    let r = req(
+        "sh",
+        vec!["-c".into(), "echo [$WRIT_TEST_LEAK]".into()],
+        10_000,
+    );
     let out = b.exec(&id, &r).unwrap();
     let stdout = String::from_utf8_lossy(&out.stdout);
     assert!(!stdout.contains("[1]"), "parent env leaked: {stdout}");

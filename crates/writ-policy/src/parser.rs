@@ -31,7 +31,10 @@ struct Lexer<'a> {
 
 impl<'a> Lexer<'a> {
     fn new(src: &'a str) -> Self {
-        Lexer { src: src.as_bytes(), pos: 0 }
+        Lexer {
+            src: src.as_bytes(),
+            pos: 0,
+        }
     }
 
     fn err(&self, msg: &str) -> String {
@@ -133,7 +136,6 @@ impl<'a> Lexer<'a> {
         Tok::Ident(String::from_utf8_lossy(&self.src[start..self.pos]).into_owned())
     }
 }
-
 
 /// Parse a `when` expression string into a raw AST.
 pub fn parse_when(src: &str) -> Result<RawExpr, String> {
@@ -279,7 +281,6 @@ impl Parser {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -312,7 +313,10 @@ mod tests {
         match e {
             RawExpr::Not(inner) => assert!(matches!(
                 *inner,
-                RawExpr::Pred(RawPredicate::In { field: Field::UrlHost, .. })
+                RawExpr::Pred(RawPredicate::In {
+                    field: Field::UrlHost,
+                    ..
+                })
             )),
             other => panic!("expected not, got {:?}", other),
         }
@@ -330,7 +334,10 @@ mod tests {
     #[test]
     fn regex_escapes_pass_through_strings() {
         let e = parse_when("path matches \"\\\\.env|id_rsa$\"").unwrap();
-        assert_eq!(e, pred(Field::Path, RawOp::Matches("\\.env|id_rsa$".into())));
+        assert_eq!(
+            e,
+            pred(Field::Path, RawOp::Matches("\\.env|id_rsa$".into()))
+        );
     }
 
     #[test]

@@ -87,20 +87,27 @@ pub fn parse_duration(s: &str) -> Result<u64, String> {
     } else {
         (s, 1)
     };
-    let v: u64 = num
-        .trim()
-        .parse()
-        .map_err(|_| format!("invalid duration {:?} (expected e.g. \"30s\", \"5m\", \"1h\")", s))?;
+    let v: u64 = num.trim().parse().map_err(|_| {
+        format!(
+            "invalid duration {:?} (expected e.g. \"30s\", \"5m\", \"1h\")",
+            s
+        )
+    })?;
     v.checked_mul(mult)
         .ok_or_else(|| format!("duration {:?} overflows milliseconds", s))
 }
-
 
 /// Parse and compile a writ.yaml source. Pure: on `Err` nothing is mutated —
 /// callers implement atomic reload by only swapping on `Ok`.
 pub fn compile(source: &str) -> Result<CompiledPolicy, String> {
     let raw: RawPolicyFile = serde_yaml::from_str(source).map_err(|e| match e.location() {
-        Some(loc) => format!("{}:{}:{}: {}", POLICY_FILE_NAME, loc.line(), loc.column(), e),
+        Some(loc) => format!(
+            "{}:{}:{}: {}",
+            POLICY_FILE_NAME,
+            loc.line(),
+            loc.column(),
+            e
+        ),
         None => format!("{}: {}", POLICY_FILE_NAME, e),
     })?;
 
@@ -115,10 +122,16 @@ pub fn compile(source: &str) -> Result<CompiledPolicy, String> {
         })?;
         for (k, v) in mapping {
             let list_name = k.as_str().ok_or_else(|| {
-                format!("{}: list names under {:?} must be strings", POLICY_FILE_NAME, ns)
+                format!(
+                    "{}: list names under {:?} must be strings",
+                    POLICY_FILE_NAME, ns
+                )
             })?;
             let seq = v.as_sequence().ok_or_else(|| {
-                format!("{}: list {:?} must be a sequence of strings", POLICY_FILE_NAME, list_name)
+                format!(
+                    "{}: list {:?} must be a sequence of strings",
+                    POLICY_FILE_NAME, list_name
+                )
             })?;
             let mut items = Vec::with_capacity(seq.len());
             for item in seq {
@@ -170,7 +183,9 @@ pub fn compile(source: &str) -> Result<CompiledPolicy, String> {
             .map_err(&at)?;
         let patterns = rr.patterns.clone().unwrap_or_default();
         if verdict == RuleVerdict::Redact && patterns.is_empty() {
-            return Err(at("`verdict: redact` requires a non-empty `patterns` list".to_string()));
+            return Err(at(
+                "`verdict: redact` requires a non-empty `patterns` list".to_string()
+            ));
         }
         rules.push(CompiledRule {
             id: rr.id.clone(),
@@ -184,100 +199,110 @@ pub fn compile(source: &str) -> Result<CompiledPolicy, String> {
         });
     }
 
-/// Compile a raw expression: build regexes and resolve `in` list refs.
-fn compile_expr(raw: &RawExpr, lists: &HashMap<String, Vec<String>>) -> Result<Expr, String> {
-    Ok(match raw {
-        RawExpr::Or(a, b) => Expr::Or(
-            Box::new(compile_expr(a, lists)?),
-            Box::new(compile_expr(b, lists)?),
-        ),
-        RawExpr::And(a, b) => Expr::And(
-            Box::new(compile_expr(a, lists)?),
-            Box::new(compile_expr(b, lists)?),
-        ),
-        RawExpr::Not(inner) => Expr::Not(Box::new(compile_expr(inner, lists)?)),
-        RawExpr::Pred(RawPredicate::Compare { field, op }) => Expr::Pred(Predicate::Compare {
-            field: *field,
-            op: compile_op(op)?,
-        }),
-        RawExpr::Pred(RawPredicate::In { field, list_ref }) => {
-            let list = lists.get(list_ref).cloned().ok_or_else(|| {
-                let mut known: Vec<&str> = lists.keys().map(String::as_str).collect();
-                known.sort();
-                format!(
-                    "unknown list reference {:?} (defined lists: {})",
-                    list_ref,
-                    if known.is_empty() { "<none>".to_string() } else { known.join(", ") }
-                )
-            })?;
-            Expr::Pred(Predicate::In { field: *field, list })
-        }
-    })
-}
-
-fn compile_op(op: &RawOp) -> Result<Op, String> {
-    Ok(match op {
-        RawOp::Eq(v) => Op::Eq(v.clone()),
-        RawOp::Ne(v) => Op::Ne(v.clone()),
-        RawOp::StartsWith(v) => Op::StartsWith(v.clone()),
-        RawOp::EndsWith(v) => Op::EndsWith(v.clone()),
-        RawOp::Contains(v) => Op::Contains(v.clone()),
-        RawOp::Matches(pat) => Op::Matches(
-            Regex::new(pat).map_err(|e| format!("invalid regex {:?}: {}", pat, e))?,
-        ),
-    })
-}
-
-/// All lines (1-based) of sequence entries declaring an id: `- id: <value>`.
-fn extract_rule_id_lines(source: &str) -> Vec<(usize, String)> {
-    let re = Regex::new(r#"^\s*-\s*id\s*:\s*(.+?)\s*(?:#.*)?$"#).expect("static regex");
-    source
-        .lines()
-        .enumerate()
-        .filter_map(|(i, line)| {
-            re.captures(line).map(|c| {
-                let id = c[1].trim().trim_matches('"').trim_matches('\'').to_string();
-                (i + 1, id)
-            })
+    /// Compile a raw expression: build regexes and resolve `in` list refs.
+    fn compile_expr(raw: &RawExpr, lists: &HashMap<String, Vec<String>>) -> Result<Expr, String> {
+        Ok(match raw {
+            RawExpr::Or(a, b) => Expr::Or(
+                Box::new(compile_expr(a, lists)?),
+                Box::new(compile_expr(b, lists)?),
+            ),
+            RawExpr::And(a, b) => Expr::And(
+                Box::new(compile_expr(a, lists)?),
+                Box::new(compile_expr(b, lists)?),
+            ),
+            RawExpr::Not(inner) => Expr::Not(Box::new(compile_expr(inner, lists)?)),
+            RawExpr::Pred(RawPredicate::Compare { field, op }) => Expr::Pred(Predicate::Compare {
+                field: *field,
+                op: compile_op(op)?,
+            }),
+            RawExpr::Pred(RawPredicate::In { field, list_ref }) => {
+                let list = lists.get(list_ref).cloned().ok_or_else(|| {
+                    let mut known: Vec<&str> = lists.keys().map(String::as_str).collect();
+                    known.sort();
+                    format!(
+                        "unknown list reference {:?} (defined lists: {})",
+                        list_ref,
+                        if known.is_empty() {
+                            "<none>".to_string()
+                        } else {
+                            known.join(", ")
+                        }
+                    )
+                })?;
+                Expr::Pred(Predicate::In {
+                    field: *field,
+                    list,
+                })
+            }
         })
-        .collect()
-}
-
-/// Match rules to source lines in order of appearance. Falls back to the
-/// nth `- id:` line if an exact id match cannot be found ahead of the cursor.
-fn locate_rule_line(
-    id_lines: &[(usize, String)],
-    id: &str,
-    index: usize,
-    cursor: &mut usize,
-) -> Option<usize> {
-    if let Some(pos) = id_lines[*cursor..].iter().position(|(_, v)| v == id) {
-        let abs = *cursor + pos;
-        *cursor = abs + 1;
-        return Some(id_lines[abs].0);
     }
-    if let Some(pos) = id_lines.iter().position(|(_, v)| v == id) {
-        return Some(id_lines[pos].0);
+
+    fn compile_op(op: &RawOp) -> Result<Op, String> {
+        Ok(match op {
+            RawOp::Eq(v) => Op::Eq(v.clone()),
+            RawOp::Ne(v) => Op::Ne(v.clone()),
+            RawOp::StartsWith(v) => Op::StartsWith(v.clone()),
+            RawOp::EndsWith(v) => Op::EndsWith(v.clone()),
+            RawOp::Contains(v) => Op::Contains(v.clone()),
+            RawOp::Matches(pat) => {
+                Op::Matches(Regex::new(pat).map_err(|e| format!("invalid regex {:?}: {}", pat, e))?)
+            }
+        })
     }
-    id_lines.get(index).map(|(l, _)| *l)
-}
 
-#[cfg(test)]
-mod tests {
-    use super::*;
-
-    #[test]
-    fn parses_durations() {
-        assert_eq!(parse_duration("30s").unwrap(), 30_000);
-        assert_eq!(parse_duration("5m").unwrap(), 300_000);
-        assert_eq!(parse_duration("1h").unwrap(), 3_600_000);
-        assert_eq!(parse_duration("250ms").unwrap(), 250);
-        assert_eq!(parse_duration("500").unwrap(), 500);
-        assert!(parse_duration("5d").is_err());
-        assert!(parse_duration("soon").is_err());
+    /// All lines (1-based) of sequence entries declaring an id: `- id: <value>`.
+    fn extract_rule_id_lines(source: &str) -> Vec<(usize, String)> {
+        let re = Regex::new(r#"^\s*-\s*id\s*:\s*(.+?)\s*(?:#.*)?$"#).expect("static regex");
+        source
+            .lines()
+            .enumerate()
+            .filter_map(|(i, line)| {
+                re.captures(line).map(|c| {
+                    let id = c[1].trim().trim_matches('"').trim_matches('\'').to_string();
+                    (i + 1, id)
+                })
+            })
+            .collect()
     }
-}
 
+    /// Match rules to source lines in order of appearance. Falls back to the
+    /// nth `- id:` line if an exact id match cannot be found ahead of the cursor.
+    fn locate_rule_line(
+        id_lines: &[(usize, String)],
+        id: &str,
+        index: usize,
+        cursor: &mut usize,
+    ) -> Option<usize> {
+        if let Some(pos) = id_lines[*cursor..].iter().position(|(_, v)| v == id) {
+            let abs = *cursor + pos;
+            *cursor = abs + 1;
+            return Some(id_lines[abs].0);
+        }
+        if let Some(pos) = id_lines.iter().position(|(_, v)| v == id) {
+            return Some(id_lines[pos].0);
+        }
+        id_lines.get(index).map(|(l, _)| *l)
+    }
 
-    Ok(CompiledPolicy { version: raw.version, default: raw.default, rules })
+    #[cfg(test)]
+    mod tests {
+        use super::*;
+
+        #[test]
+        fn parses_durations() {
+            assert_eq!(parse_duration("30s").unwrap(), 30_000);
+            assert_eq!(parse_duration("5m").unwrap(), 300_000);
+            assert_eq!(parse_duration("1h").unwrap(), 3_600_000);
+            assert_eq!(parse_duration("250ms").unwrap(), 250);
+            assert_eq!(parse_duration("500").unwrap(), 500);
+            assert!(parse_duration("5d").is_err());
+            assert!(parse_duration("soon").is_err());
+        }
+    }
+
+    Ok(CompiledPolicy {
+        version: raw.version,
+        default: raw.default,
+        rules,
+    })
 }

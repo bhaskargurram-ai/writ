@@ -1,4 +1,7 @@
-use writ_core::approver::{ApprovalDecision, ApprovalOutcome, Approver, ApproverIdentity, ApproverKind, AskView, FailClosedApprover};
+use writ_core::approver::{
+    ApprovalDecision, ApprovalOutcome, Approver, ApproverIdentity, ApproverKind, AskView,
+    FailClosedApprover,
+};
 use writ_core::call::{CallerIdentity, InterceptMode, ToolCall};
 use writ_core::ledger::{LedgerRecord, LedgerStore, LedgerWriter, RecordKind, GENESIS_HASH};
 use writ_core::policy::PolicyEngine;
@@ -41,7 +44,9 @@ impl LedgerStore for MemStore {
 
 struct AskPolicy;
 impl PolicyEngine for AskPolicy {
-    fn name(&self) -> &'static str { "test" }
+    fn name(&self) -> &'static str {
+        "test"
+    }
     fn evaluate(&self, _ctx: &writ_core::ToolCallContext) -> Verdict {
         Verdict::Ask {
             rule_id: "irreversible-step".into(),
@@ -51,8 +56,12 @@ impl PolicyEngine for AskPolicy {
             location: Some("writ.yaml:9".into()),
         }
     }
-    fn reload(&mut self, _source: &str) -> Result<()> { Ok(()) }
-    fn rule_count(&self) -> usize { 1 }
+    fn reload(&mut self, _source: &str) -> Result<()> {
+        Ok(())
+    }
+    fn rule_count(&self) -> usize {
+        1
+    }
 }
 
 struct AllowApprover;
@@ -60,7 +69,10 @@ impl Approver for AllowApprover {
     fn request(&self, _call: &ToolCall, _ask: &AskView) -> Result<ApprovalOutcome> {
         Ok(ApprovalOutcome {
             decision: ApprovalDecision::AllowOnce,
-            approver: ApproverIdentity { kind: ApproverKind::Tui, id: "tester".into() },
+            approver: ApproverIdentity {
+                kind: ApproverKind::Tui,
+                id: "tester".into(),
+            },
             waited_ms: 0,
         })
     }
@@ -71,7 +83,12 @@ fn approved_ask_records_engine_verdict_with_irreversible_flag() {
     let call = ToolCall {
         call_id: "c1".into(),
         session_id: "s1".into(),
-        caller: CallerIdentity { agent: "test".into(), agent_version: None, user: None, non_human_id: None },
+        caller: CallerIdentity {
+            agent: "test".into(),
+            agent_version: None,
+            user: None,
+            non_human_id: None,
+        },
         mode: InterceptMode::Mcp,
         tool: "postgres.query".into(),
         args: serde_json::json!({"query": "DROP TABLE users"}),
@@ -88,9 +105,16 @@ fn approved_ask_records_engine_verdict_with_irreversible_flag() {
     assert_eq!(store.0.len(), 1);
     assert_eq!(store.0[0].kind, RecordKind::Decision);
     match store.0[0].verdict.as_ref().unwrap() {
-        Verdict::Ask { rule_id, irreversible, .. } => {
+        Verdict::Ask {
+            rule_id,
+            irreversible,
+            ..
+        } => {
             assert_eq!(rule_id, "irreversible-step");
-            assert!(*irreversible, "ledger must preserve irreversible ask for replay/branching");
+            assert!(
+                *irreversible,
+                "ledger must preserve irreversible ask for replay/branching"
+            );
         }
         other => panic!("ledger must store engine ask verdict, got {other:?}"),
     }
@@ -100,7 +124,12 @@ fn postgres_drop_call() -> ToolCall {
     ToolCall {
         call_id: "c-headless".into(),
         session_id: "s-headless".into(),
-        caller: CallerIdentity { agent: "test".into(), agent_version: None, user: None, non_human_id: None },
+        caller: CallerIdentity {
+            agent: "test".into(),
+            agent_version: None,
+            user: None,
+            non_human_id: None,
+        },
         mode: InterceptMode::ProcessWrap,
         tool: "postgres.query".into(),
         args: serde_json::json!({"query": "DROP TABLE users"}),
@@ -121,12 +150,24 @@ fn headless_ask_fails_closed_and_records_decision() {
 
     assert!(!outcome.should_dispatch(), "headless ask must not dispatch");
     assert!(matches!(outcome.verdict, Verdict::Deny { .. }));
-    let approval = outcome.approval.expect("fail-closed approver records denial");
+    let approval = outcome
+        .approval
+        .expect("fail-closed approver records denial");
     assert_eq!(approval.decision, ApprovalDecision::Deny);
     assert_eq!(approval.approver.kind, ApproverKind::OutOfBand);
 
-    assert_eq!(store.0.len(), 1, "decision is still recorded before refusal");
+    assert_eq!(
+        store.0.len(),
+        1,
+        "decision is still recorded before refusal"
+    );
     assert_eq!(store.0[0].kind, RecordKind::Decision);
-    assert_eq!(store.0[0].approver.as_ref().unwrap().kind, ApproverKind::OutOfBand);
-    assert!(matches!(store.0[0].verdict.as_ref().unwrap(), Verdict::Ask { .. }));
+    assert_eq!(
+        store.0[0].approver.as_ref().unwrap().kind,
+        ApproverKind::OutOfBand
+    );
+    assert!(matches!(
+        store.0[0].verdict.as_ref().unwrap(),
+        Verdict::Ask { .. }
+    ));
 }

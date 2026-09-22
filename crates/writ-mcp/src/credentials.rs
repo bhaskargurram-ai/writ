@@ -42,7 +42,10 @@ impl CredentialStore {
     }
 
     pub fn has_any(&self, server: &str) -> bool {
-        self.secrets.get(server).map(|m| !m.is_empty()).unwrap_or(false)
+        self.secrets
+            .get(server)
+            .map(|m| !m.is_empty())
+            .unwrap_or(false)
     }
 
     /// Inject this server's secrets into an environment map about to be used
@@ -60,8 +63,7 @@ impl CredentialStore {
 /// A spawned downstream MCP server: child handle + framed transport.
 pub struct StdioServer {
     pub child: Child,
-    pub transport:
-        StreamTransport<BufReader<std::process::ChildStdout>, std::process::ChildStdin>,
+    pub transport: StreamTransport<BufReader<std::process::ChildStdout>, std::process::ChildStdin>,
 }
 
 /// Spawn a downstream stdio MCP server with its credentials injected.

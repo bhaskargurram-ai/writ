@@ -88,9 +88,7 @@ pub fn parse_rfc3339(s: &str) -> Option<Timestamp> {
     if b.len() != 20 || b[4] != b'-' || b[7] != b'-' || b[10] != b'T' || b[19] != b'Z' {
         return None;
     }
-    let num = |i: usize, n: usize| -> Option<i64> {
-        s.get(i..i + n).and_then(|t| t.parse().ok())
-    };
+    let num = |i: usize, n: usize| -> Option<i64> { s.get(i..i + n).and_then(|t| t.parse().ok()) };
     let (y, mo, d) = (num(0, 4)?, num(5, 2)?, num(8, 2)?);
     let (h, mi, sec) = (num(11, 2)?, num(14, 2)?, num(17, 2)?);
     if !(1..=12).contains(&mo) || !(1..=31).contains(&d) || h > 23 || mi > 59 || sec > 60 {
@@ -115,7 +113,10 @@ mod tests {
 
     #[test]
     fn epoch_renders_correctly() {
-        assert_eq!(Timestamp::from_epoch_ms(0).to_rfc3339(), "1970-01-01T00:00:00Z");
+        assert_eq!(
+            Timestamp::from_epoch_ms(0).to_rfc3339(),
+            "1970-01-01T00:00:00Z"
+        );
     }
 
     #[test]

@@ -78,7 +78,6 @@ pub struct FixtureCtx {
     pub args: Option<serde_json::Value>,
 }
 
-
 impl FixtureCtx {
     /// Build the evaluation context. If `args` is present, fields are derived
     /// via `ToolCallContext::from_call` (the real normalization path) and any
@@ -101,7 +100,10 @@ impl FixtureCtx {
                 call_id: "fixture-call".to_string(),
                 session_id: "fixture-session".to_string(),
                 caller: CallerIdentity {
-                    agent: self.agent.clone().unwrap_or_else(|| "fixture-agent".to_string()),
+                    agent: self
+                        .agent
+                        .clone()
+                        .unwrap_or_else(|| "fixture-agent".to_string()),
                     agent_version: None,
                     user: None,
                     non_human_id: None,
@@ -109,11 +111,14 @@ impl FixtureCtx {
                 mode,
                 tool: self.tool.clone().unwrap_or_default(),
                 args: args.clone(),
-                server: self.server.clone().map(|name| writ_core::call::ServerIdentity {
-                    name,
-                    transport: "stdio".to_string(),
-                    version: None,
-                }),
+                server: self
+                    .server
+                    .clone()
+                    .map(|name| writ_core::call::ServerIdentity {
+                        name,
+                        transport: "stdio".to_string(),
+                        version: None,
+                    }),
                 trust: None,
                 captured_at: Timestamp::now(),
             };
@@ -149,7 +154,6 @@ impl FixtureCtx {
         }
     }
 }
-
 
 /// One fixture disagreement.
 #[derive(Debug, Clone)]
@@ -268,7 +272,10 @@ fn run_one(
         None => shared.expect("shared engine exists when no error"),
     };
 
-    let ctx = fx.ctx.to_context().map_err(|e| fail(format!("bad ctx: {}", e)))?;
+    let ctx = fx
+        .ctx
+        .to_context()
+        .map_err(|e| fail(format!("bad ctx: {}", e)))?;
     let verdict = engine.evaluate(&ctx);
 
     let actual_kind = verdict_kind(&verdict);

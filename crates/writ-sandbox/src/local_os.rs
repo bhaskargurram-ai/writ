@@ -64,9 +64,10 @@ impl LocalOsBackend {
     /// Canonicalize both sides so `..` tricks fail closed.
     fn check_cwd(spec: &SandboxSpec, req: &ExecRequest) -> Result<()> {
         let Some(cwd) = &req.cwd else { return Ok(()) };
-        let ws = spec.workspace.canonicalize().map_err(|e| {
-            WritError::Sandbox(format!("workspace not canonicalizable: {e}"))
-        })?;
+        let ws = spec
+            .workspace
+            .canonicalize()
+            .map_err(|e| WritError::Sandbox(format!("workspace not canonicalizable: {e}")))?;
         let target = cwd.canonicalize().map_err(|e| {
             WritError::Sandbox(format!(
                 "cwd {} not canonicalizable (fail closed): {e}",
@@ -119,9 +120,9 @@ impl SandboxBackend for LocalOsBackend {
             .stderr(Stdio::piped());
 
         let start = Instant::now();
-        let mut child = cmd.spawn().map_err(|e| {
-            WritError::Sandbox(format!("spawn {} failed: {e}", req.program))
-        })?;
+        let mut child = cmd
+            .spawn()
+            .map_err(|e| WritError::Sandbox(format!("spawn {} failed: {e}", req.program)))?;
 
         // Drain pipes on reader threads: a chatty child must never deadlock
         // against a full pipe buffer while we poll try_wait.

@@ -66,7 +66,6 @@ impl FileLedgerStore {
         &self.path
     }
 
-
     /// Rebuild `len` / tip state from disk. Cheap link checks only (index
     /// sequence + prev_hash chain); full hash verification is `verify()`.
     /// Returns the byte offset of a torn tail, if one was found.
@@ -197,4 +196,3 @@ pub(crate) fn record_iter(file: File) -> impl Iterator<Item = Result<LedgerRecor
         Ok(s) => Some(serde_json::from_str(&s).map_err(WritError::from)),
     })
 }
-

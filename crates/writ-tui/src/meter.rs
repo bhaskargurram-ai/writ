@@ -69,7 +69,13 @@ mod tests {
     #[test]
     fn costs_and_unknown_prices() {
         let mut m = TokenMeter::new();
-        m.set_pricing("example-model", Pricing { input_per_mtok: 3.0, output_per_mtok: 15.0 });
+        m.set_pricing(
+            "example-model",
+            Pricing {
+                input_per_mtok: 3.0,
+                output_per_mtok: 15.0,
+            },
+        );
         m.add_usage("example-model", 1_000_000, 100_000);
         m.add_usage("unpriced-model", 5, 5);
         assert_eq!(m.cost_usd("example-model"), Some(4.5));

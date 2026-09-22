@@ -106,4 +106,3 @@ impl SandboxRegistry {
         self.get("local-os").expect("local-os is always present")
     }
 }
-

@@ -22,13 +22,18 @@ impl NativePolicyEngine {
     /// Compile a policy from source. Returns `Err` with `writ.yaml:LINE`
     /// detail on any parse/validation failure.
     pub fn from_source(source: &str) -> Result<Self> {
-        Ok(NativePolicyEngine { policy: compile(source).map_err(WritError::Policy)? })
+        Ok(NativePolicyEngine {
+            policy: compile(source).map_err(WritError::Policy)?,
+        })
     }
 
     /// The policy file's declared version and default verdict (for the CLI
     /// banner and `--yolo` override).
     pub fn meta(&self) -> PolicyMeta {
-        PolicyMeta { version: self.policy.version, default: self.policy.default }
+        PolicyMeta {
+            version: self.policy.version,
+            default: self.policy.default,
+        }
     }
 }
 
@@ -82,18 +87,22 @@ fn default_verdict(default: DefaultVerdict) -> Verdict {
 fn verdict_for(rule: &CompiledRule, ctx: &ToolCallContext) -> Verdict {
     let location = rule.line.map(|l| format!("{}:{}", POLICY_FILE_NAME, l));
     match rule.verdict {
-        RuleVerdict::Allow => Verdict::Allow { rule_id: Some(rule.id.clone()) },
-        RuleVerdict::Deny => Verdict::Deny {
-            rule_id: rule.id.clone(),
-            reason: rule.reason.clone().unwrap_or_else(|| {
-                format!(
+        RuleVerdict::Allow => Verdict::Allow {
+            rule_id: Some(rule.id.clone()),
+        },
+        RuleVerdict::Deny => {
+            Verdict::Deny {
+                rule_id: rule.id.clone(),
+                reason: rule.reason.clone().unwrap_or_else(|| {
+                    format!(
                     "Denied by rule `{}`. The policy author did not provide a reason; inspect {}.",
                     rule.id,
                     location.clone().unwrap_or_else(|| POLICY_FILE_NAME.to_string())
                 )
-            }),
-            location,
-        },
+                }),
+                location,
+            }
+        }
         RuleVerdict::Ask => Verdict::Ask {
             rule_id: rule.id.clone(),
             diff: rule.reason.clone().unwrap_or_else(|| ask_diff(rule, ctx)),
@@ -170,12 +179,14 @@ fn field_value(field: Field, ctx: &ToolCallContext) -> Option<String> {
         Field::UrlHost => ctx.url_host.clone(),
         Field::Query => ctx.query.clone(),
         Field::Agent => Some(ctx.agent.clone()),
-        Field::Mode => Some(match ctx.mode {
-            writ_core::call::InterceptMode::Mcp => "mcp",
-            writ_core::call::InterceptMode::ProcessWrap => "processwrap",
-            writ_core::call::InterceptMode::SdkHook => "sdkhook",
-        }
-        .to_string()),
+        Field::Mode => Some(
+            match ctx.mode {
+                writ_core::call::InterceptMode::Mcp => "mcp",
+                writ_core::call::InterceptMode::ProcessWrap => "processwrap",
+                writ_core::call::InterceptMode::SdkHook => "sdkhook",
+            }
+            .to_string(),
+        ),
         Field::Server => ctx.server.clone(),
         Field::Trust => ctx.trust.clone(),
         Field::Unknown => None,
@@ -201,13 +212,30 @@ mod tests {
 
     #[test]
     fn wildcard_matches_dot_boundary_only() {
-        assert!(list_entry_matches("*.internal.acme.com", "api.internal.acme.com"));
-        assert!(list_entry_matches("*.internal.acme.com", "internal.acme.com"));
-        assert!(list_entry_matches("*.internal.acme.com", "API.Internal.Acme.COM"));
-        assert!(!list_entry_matches("*.internal.acme.com", "evilinternal.acme.com"));
-        assert!(!list_entry_matches("*.internal.acme.com", "internal.acme.com.evil.net"));
+        assert!(list_entry_matches(
+            "*.internal.acme.com",
+            "api.internal.acme.com"
+        ));
+        assert!(list_entry_matches(
+            "*.internal.acme.com",
+            "internal.acme.com"
+        ));
+        assert!(list_entry_matches(
+            "*.internal.acme.com",
+            "API.Internal.Acme.COM"
+        ));
+        assert!(!list_entry_matches(
+            "*.internal.acme.com",
+            "evilinternal.acme.com"
+        ));
+        assert!(!list_entry_matches(
+            "*.internal.acme.com",
+            "internal.acme.com.evil.net"
+        ));
         assert!(list_entry_matches("api.github.com", "api.github.com"));
-        assert!(!list_entry_matches("api.github.com", "api.github.com.evil.net"));
+        assert!(!list_entry_matches(
+            "api.github.com",
+            "api.github.com.evil.net"
+        ));
     }
 }
-

@@ -31,7 +31,10 @@ pub enum Verdict {
     },
     /// Execute, but mask matched patterns in the result before it re-enters
     /// the model's context. Recorded with a hash of the original.
-    Redact { rule_id: String, patterns: Vec<String> },
+    Redact {
+        rule_id: String,
+        patterns: Vec<String>,
+    },
 }
 
 impl Verdict {
@@ -49,7 +52,13 @@ impl Verdict {
     }
 
     pub fn is_irreversible(&self) -> bool {
-        matches!(self, Verdict::Ask { irreversible: true, .. })
+        matches!(
+            self,
+            Verdict::Ask {
+                irreversible: true,
+                ..
+            }
+        )
     }
 }
 

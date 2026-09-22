@@ -58,4 +58,3 @@ pub fn verify(path: impl AsRef<Path>) -> Result<VerifyReport> {
         },
     }
 }
-

@@ -10,7 +10,9 @@ use std::collections::HashSet;
 use std::io::{BufRead, Write};
 use std::time::Instant;
 
-use writ_core::approver::{ApprovalDecision, ApprovalOutcome, Approver, ApproverIdentity, ApproverKind, AskView};
+use writ_core::approver::{
+    ApprovalDecision, ApprovalOutcome, Approver, ApproverIdentity, ApproverKind, AskView,
+};
 use writ_core::call::ToolCall;
 use writ_core::error::Result;
 
@@ -61,7 +63,12 @@ impl Approver for TuiApprover {
         }
 
         let mut err = std::io::stderr();
-        let _ = writeln!(err, "\n\x1b[33m⚠ writ asks:\x1b[0m {} {}", call.tool, summarize(&call.args));
+        let _ = writeln!(
+            err,
+            "\n\x1b[33m⚠ writ asks:\x1b[0m {} {}",
+            call.tool,
+            summarize(&call.args)
+        );
         for line in ask.diff.lines() {
             let _ = writeln!(err, "  {line}");
         }
@@ -123,7 +130,11 @@ fn summarize(args: &serde_json::Value) -> String {
         serde_json::Value::Object(m) => m
             .values()
             .next()
-            .map(|v| v.as_str().map(String::from).unwrap_or_else(|| v.to_string()))
+            .map(|v| {
+                v.as_str()
+                    .map(String::from)
+                    .unwrap_or_else(|| v.to_string())
+            })
             .unwrap_or_default(),
         other => other.to_string(),
     };

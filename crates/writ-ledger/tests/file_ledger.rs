@@ -8,9 +8,7 @@ use std::sync::atomic::{AtomicU64, Ordering};
 use writ_core::approver::{ApproverIdentity, ApproverKind};
 use writ_core::error::WritError;
 use writ_core::ledger::{LedgerStore, LedgerWriter, RecordKind, GENESIS_HASH};
-use writ_core::{
-    CallerIdentity, InterceptMode, Timestamp, ToolCall, Verdict,
-};
+use writ_core::{CallerIdentity, InterceptMode, Timestamp, ToolCall, Verdict};
 use writ_ledger::{find_by_call_id, sessions, verify, FileLedgerStore};
 
 /// Zero-dependency tempdir (this environment builds offline; no tempfile).
@@ -20,11 +18,8 @@ impl TempDir {
     fn new() -> Self {
         static COUNTER: AtomicU64 = AtomicU64::new(0);
         let id = COUNTER.fetch_add(1, Ordering::SeqCst);
-        let path = std::env::temp_dir().join(format!(
-            "writ-ledger-test-{}-{}",
-            std::process::id(),
-            id
-        ));
+        let path =
+            std::env::temp_dir().join(format!("writ-ledger-test-{}-{}", std::process::id(), id));
         std::fs::create_dir_all(&path).unwrap();
         TempDir(path)
     }
@@ -83,7 +78,9 @@ fn populated(dir: &TempDir) -> PathBuf {
     let path = ledger_path(dir);
     let mut store = FileLedgerStore::open(&path).unwrap();
     let mut w = LedgerWriter::new(&mut store);
-    let d = w.record_decision(&call("c1", "s1"), &allow(), None).unwrap();
+    let d = w
+        .record_decision(&call("c1", "s1"), &allow(), None)
+        .unwrap();
     w.record_execution(&d, "local-os", 0, b"ok").unwrap();
     w.record_decision(&call("c2", "s2"), &deny(), None).unwrap();
     path
@@ -115,7 +112,8 @@ fn roundtrip_append_iter_and_reopen() {
 
     // Append continues seamlessly after reopen.
     let mut w = LedgerWriter::new(&mut store);
-    w.record_decision(&call("c3", "s1"), &allow(), None).unwrap();
+    w.record_decision(&call("c3", "s1"), &allow(), None)
+        .unwrap();
     assert_eq!(store.len(), 4);
     assert!(verify(&path).unwrap().intact);
 }
@@ -126,7 +124,8 @@ fn genesis_record_has_zero_prev_hash() {
     let path = ledger_path(&dir);
     let mut store = FileLedgerStore::open(&path).unwrap();
     let mut w = LedgerWriter::new(&mut store);
-    w.record_decision(&call("c1", "s1"), &allow(), None).unwrap();
+    w.record_decision(&call("c1", "s1"), &allow(), None)
+        .unwrap();
     let first = store.get(0).unwrap().unwrap();
     assert_eq!(first.prev_hash, GENESIS_HASH);
     assert_eq!(first.prev_hash.len(), 64);
@@ -172,7 +171,10 @@ fn verify_reports_exact_index_on_valid_json_tamper() {
     // session_id. The stored record_hash no longer matches the payload.
     let mut lines: Vec<String> = {
         let mut s = String::new();
-        std::fs::File::open(&path).unwrap().read_to_string(&mut s).unwrap();
+        std::fs::File::open(&path)
+            .unwrap()
+            .read_to_string(&mut s)
+            .unwrap();
         s.lines().map(|l| l.to_string()).collect()
     };
     let mut v: serde_json::Value = serde_json::from_str(&lines[1]).unwrap();
@@ -231,7 +233,8 @@ fn crash_tolerant_tail() {
     // Simulate a crash mid-write: a torn final line.
     {
         let mut f = OpenOptions::new().append(true).open(&path).unwrap();
-        f.write_all(b"{\"schema_version\":1,\"kind\":\"deci").unwrap();
+        f.write_all(b"{\"schema_version\":1,\"kind\":\"deci")
+            .unwrap();
         f.flush().unwrap();
     }
 
@@ -243,7 +246,8 @@ fn crash_tolerant_tail() {
     // The torn tail was truncated at open, so the ledger keeps accepting
     // records and the chain still verifies end-to-end.
     let mut w = LedgerWriter::new(&mut store);
-    w.record_decision(&call("c9", "s9"), &allow(), None).unwrap();
+    w.record_decision(&call("c9", "s9"), &allow(), None)
+        .unwrap();
     assert_eq!(store.len(), 4);
     let report = verify(&path).unwrap();
     assert!(report.intact);
@@ -280,9 +284,12 @@ fn sessions_and_find_by_call_id() {
         let mut store = FileLedgerStore::open(&path).unwrap();
         let mut w = LedgerWriter::new(&mut store);
         // s1: allowed + executed, plus a human-approved ask resolution.
-        let d1 = w.record_decision(&call("c1", "s1"), &allow(), None).unwrap();
+        let d1 = w
+            .record_decision(&call("c1", "s1"), &allow(), None)
+            .unwrap();
         w.record_execution(&d1, "local-os", 0, b"ok").unwrap();
-        w.record_decision(&call("c2", "s1"), &allow(), Some(human)).unwrap();
+        w.record_decision(&call("c2", "s1"), &allow(), Some(human))
+            .unwrap();
         // s2: one denial.
         w.record_decision(&call("c3", "s2"), &deny(), None).unwrap();
     }
@@ -321,4 +328,3 @@ fn empty_ledger_verifies_intact() {
     assert_eq!(report.records, 0);
     assert_eq!(report.broken_at, None);
 }
-

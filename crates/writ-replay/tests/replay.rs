@@ -59,9 +59,15 @@ fn fixture_ledger() -> (TestDir, std::path::PathBuf, String) {
     let d0 = w
         .record_decision(&c0, &Verdict::Allow { rule_id: None }, None)
         .unwrap();
-    w.record_execution(&d0, "local-os", 0, b"file.rs\n").unwrap();
+    w.record_execution(&d0, "local-os", 0, b"file.rs\n")
+        .unwrap();
 
-    let c1 = call(&session, 1, "bash", serde_json::json!({"command": "rm -rf /"}));
+    let c1 = call(
+        &session,
+        1,
+        "bash",
+        serde_json::json!({"command": "rm -rf /"}),
+    );
     w.record_decision(
         &c1,
         &Verdict::Deny {

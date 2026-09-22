@@ -41,8 +41,7 @@ impl<R: BufRead, W: Write> Transport for StreamTransport<R, W> {
 }
 
 /// Convenience constructor for the process's own stdin/stdout.
-pub fn stdio_transport(
-) -> StreamTransport<BufReader<std::io::Stdin>, std::io::Stdout> {
+pub fn stdio_transport() -> StreamTransport<BufReader<std::io::Stdin>, std::io::Stdout> {
     StreamTransport::new(BufReader::new(std::io::stdin()), std::io::stdout())
 }
 

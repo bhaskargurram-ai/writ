@@ -45,14 +45,22 @@ fn banner(engine: &NativePolicyEngine, policy: &Path, ledger: &Path) {
     );
 }
 
-fn make_call(session: &str, seq: u64, tool: &str, args: serde_json::Value, mode: InterceptMode) -> ToolCall {
+fn make_call(
+    session: &str,
+    seq: u64,
+    tool: &str,
+    args: serde_json::Value,
+    mode: InterceptMode,
+) -> ToolCall {
     ToolCall {
         call_id: format!("{session}-{seq}"),
         session_id: session.to_string(),
         caller: CallerIdentity {
             agent: std::env::var("WRIT_AGENT").unwrap_or_else(|_| "unknown-agent".into()),
             agent_version: None,
-            user: std::env::var("USER").or_else(|_| std::env::var("USERNAME")).ok(),
+            user: std::env::var("USER")
+                .or_else(|_| std::env::var("USERNAME"))
+                .ok(),
             non_human_id: None,
         },
         mode,
@@ -137,7 +145,10 @@ pub fn proxy(
     }
     let engine = load_engine(policy, yolo)?;
     banner(&engine, policy, ledger);
-    eprintln!("  mode: mcp proxy · downstream server: {server} · cmd: {}", cmd.join(" "));
+    eprintln!(
+        "  mode: mcp proxy · downstream server: {server} · cmd: {}",
+        cmd.join(" ")
+    );
 
     let mut creds = CredentialStore::new();
     creds.load_from_env(server);
@@ -145,14 +156,9 @@ pub fn proxy(
         eprintln!("  credentials: injected at dispatch for '{server}' (agent never sees them)");
     }
 
-    let spawned = writ_mcp::spawn_stdio_server(
-        &cmd[0],
-        &cmd[1..],
-        server,
-        &creds,
-        &BTreeMap::new(),
-    )
-    .map_err(|e| anyhow!(e.to_string()))?;
+    let spawned =
+        writ_mcp::spawn_stdio_server(&cmd[0], &cmd[1..], server, &creds, &BTreeMap::new())
+            .map_err(|e| anyhow!(e.to_string()))?;
 
     let store = Rc::new(RefCell::new(
         FileLedgerStore::open(ledger).map_err(|e| anyhow!(e.to_string()))?,
@@ -211,40 +217,44 @@ pub fn proxy(
         },
         decide,
     );
-    proxy.on_result(Box::new(move |call: &ToolCall, result: &serde_json::Value| {
-        let Some(entry) = decisions_o.borrow().get(&call.call_id).cloned() else {
-            return;
-        };
-        let bytes = serde_json::to_vec(result).unwrap_or_default();
-        let mut s = store_o.borrow_mut();
-        let mut writer = LedgerWriter::new(&mut *s);
-        let _ = writer.record_execution(&entry.0, "mcp-proxy", 0, &bytes);
-    }));
+    proxy.on_result(Box::new(
+        move |call: &ToolCall, result: &serde_json::Value| {
+            let Some(entry) = decisions_o.borrow().get(&call.call_id).cloned() else {
+                return;
+            };
+            let bytes = serde_json::to_vec(result).unwrap_or_default();
+            let mut s = store_o.borrow_mut();
+            let mut writer = LedgerWriter::new(&mut *s);
+            let _ = writer.record_execution(&entry.0, "mcp-proxy", 0, &bytes);
+        },
+    ));
 
     // Redact verdicts: mask matched patterns in results before they re-enter
     // the model's context (spec §7). The ledger already hashed the original.
     let decisions_t = Rc::clone(&decisions);
-    proxy.set_result_transform(Box::new(move |call: &ToolCall, result: serde_json::Value| {
-        let patterns = decisions_t
-            .borrow()
-            .get(&call.call_id)
-            .map(|e| e.1.clone())
-            .unwrap_or_default();
-        if patterns.is_empty() {
-            return result;
-        }
-        let mut text = result.to_string();
-        for p in &patterns {
-            if let Ok(re) = regex::Regex::new(p) {
-                text = re.replace_all(&text, "[redacted-by-writ]").to_string();
+    proxy.set_result_transform(Box::new(
+        move |call: &ToolCall, result: serde_json::Value| {
+            let patterns = decisions_t
+                .borrow()
+                .get(&call.call_id)
+                .map(|e| e.1.clone())
+                .unwrap_or_default();
+            if patterns.is_empty() {
+                return result;
             }
-        }
-        // Prefer returning valid JSON; if masking broke structure, return the
-        // masked text as a plain content block instead (never the original).
-        serde_json::from_str(&text).unwrap_or_else(|_| {
-            serde_json::json!({"content": [{"type": "text", "text": text}]})
-        })
-    }));
+            let mut text = result.to_string();
+            for p in &patterns {
+                if let Ok(re) = regex::Regex::new(p) {
+                    text = re.replace_all(&text, "[redacted-by-writ]").to_string();
+                }
+            }
+            // Prefer returning valid JSON; if masking broke structure, return the
+            // masked text as a plain content block instead (never the original).
+            serde_json::from_str(&text).unwrap_or_else(
+                |_| serde_json::json!({"content": [{"type": "text", "text": text}]}),
+            )
+        },
+    ));
 
     proxy.run().map_err(|e| anyhow!(e.to_string()))?;
     eprintln!("  writ · session closed · ledger: {}", ledger.display());
@@ -274,7 +284,11 @@ fn summarize(args: &serde_json::Value) -> String {
         serde_json::Value::Object(m) => m
             .values()
             .next()
-            .map(|v| v.as_str().map(String::from).unwrap_or_else(|| v.to_string()))
+            .map(|v| {
+                v.as_str()
+                    .map(String::from)
+                    .unwrap_or_else(|| v.to_string())
+            })
             .unwrap_or_default(),
         other => other.to_string(),
     };
@@ -302,7 +316,10 @@ pub fn log(ledger: &Path) -> Result<()> {
         denied,
         human
     );
-    println!("{:<34} {:>8} {:>8}  approved", "session", "records", "denied");
+    println!(
+        "{:<34} {:>8} {:>8}  approved",
+        "session", "records", "denied"
+    );
     for s in sessions {
         println!(
             "{:<34} {:>8} {:>8}  {}",
@@ -349,8 +366,8 @@ pub fn verify(ledger: &Path) -> Result<()> {
 
 /// `writ policy test` — unit-test rules against fixtures.
 pub fn policy_test(policy: &Path, fixtures: Option<PathBuf>) -> Result<()> {
-    let source = std::fs::read_to_string(policy)
-        .with_context(|| format!("read {}", policy.display()))?;
+    let source =
+        std::fs::read_to_string(policy).with_context(|| format!("read {}", policy.display()))?;
     let dir = fixtures.unwrap_or_else(|| PathBuf::from("fixtures"));
     if !dir.is_dir() {
         bail!(
@@ -432,7 +449,11 @@ pub fn doctor(policy: &Path, ledger: &Path) -> Result<()> {
         println!(
             "  {:<14} {} — {}",
             b.name,
-            if b.available { "available" } else { "not available" },
+            if b.available {
+                "available"
+            } else {
+                "not available"
+            },
             b.notes
         );
     }
@@ -445,7 +466,9 @@ pub fn doctor(policy: &Path, ledger: &Path) -> Result<()> {
     println!("interception coverage:");
     println!("  MCP proxy (mode A)     : ready — `writ proxy --mcp` governs every MCP tool call");
     println!("  process wrap (mode B)  : launch supervision only in this build; kernel floor NOT enforced (wave 2)");
-    println!("  SDK hooks (mode C)     : wave 3 — LangGraph / OpenAI Agents SDK / Claude Agent SDK");
+    println!(
+        "  SDK hooks (mode C)     : wave 3 — LangGraph / OpenAI Agents SDK / Claude Agent SDK"
+    );
     println!();
     println!("\x1b[33mblind spots, stated plainly:\x1b[0m");
     println!("  · in MCP-proxy-only mode the agent's own shell, file writes and direct HTTP are NOT governed");
@@ -518,7 +541,11 @@ fn emit_span(ledger: &Path, call: &ToolCall, verdict: &Verdict) {
         .parent()
         .unwrap_or_else(|| Path::new("."))
         .join("spans.jsonl");
-    let Ok(file) = std::fs::OpenOptions::new().create(true).append(true).open(&path) else {
+    let Ok(file) = std::fs::OpenOptions::new()
+        .create(true)
+        .append(true)
+        .open(&path)
+    else {
         return; // observability must never break the security path
     };
     let trace = writ_otel::GenAiTrace::begin(&call.caller.agent);
@@ -548,7 +575,8 @@ pub fn replay(
     branch_from: Option<u64>,
     ack: bool,
 ) -> Result<()> {
-    let steps = writ_replay::load_trajectory(ledger, session).map_err(|e| anyhow!(e.to_string()))?;
+    let steps =
+        writ_replay::load_trajectory(ledger, session).map_err(|e| anyhow!(e.to_string()))?;
     if steps.is_empty() {
         bail!("no recorded calls for session '{session}' (see `writ log`)");
     }
@@ -556,9 +584,17 @@ pub fn replay(
     println!("session {session} · {} recorded calls", steps.len());
     for s in &steps {
         if let (Some(call), Some(v)) = (&s.decision.call, &s.decision.verdict) {
-            println!("  #{} {}", s.decision.index, render_call_line(&call.tool, &summarize(&call.args), v));
+            println!(
+                "  #{} {}",
+                s.decision.index,
+                render_call_line(&call.tool, &summarize(&call.args), v)
+            );
             if let Some(exec) = &s.execution {
-                println!("      executed on {} · exit {:?}", exec.backend.as_deref().unwrap_or("?"), exec.exit_status);
+                println!(
+                    "      executed on {} · exit {:?}",
+                    exec.backend.as_deref().unwrap_or("?"),
+                    exec.exit_status
+                );
             }
         }
     }
@@ -588,7 +624,11 @@ pub fn replay(
                 "re-branch plan from #{from}: {} step(s) replayable, {} irreversible ({})",
                 plan.replayable.len(),
                 plan.irreversible.len(),
-                if plan.acknowledged { "acknowledged" } else { "none" }
+                if plan.acknowledged {
+                    "acknowledged"
+                } else {
+                    "none"
+                }
             ),
             Err(e) => {
                 eprintln!("{e}");

@@ -84,7 +84,10 @@ impl Span {
     pub fn event(&mut self, name: &str, attrs: &[(&str, String)]) -> &mut Self {
         self.events.push(SpanEvent {
             name: name.to_string(),
-            attributes: attrs.iter().map(|(k, v)| (k.to_string(), v.clone())).collect(),
+            attributes: attrs
+                .iter()
+                .map(|(k, v)| (k.to_string(), v.clone()))
+                .collect(),
             time: Timestamp::now(),
         });
         self
@@ -137,7 +140,10 @@ impl GenAiTrace {
         s.attr("gen_ai.operation.name", "execute_tool")
             .attr("gen_ai.tool.name", &call.tool)
             .attr("gen_ai.tool.call.id", &call.call_id)
-            .attr("writ.intercept.mode", format!("{:?}", call.mode).to_lowercase());
+            .attr(
+                "writ.intercept.mode",
+                format!("{:?}", call.mode).to_lowercase(),
+            );
         if let Some(server) = &call.server {
             s.attr("mcp.server.name", &server.name)
                 .attr("mcp.transport", &server.transport);
@@ -218,9 +224,18 @@ mod tests {
     #[test]
     fn builds_genai_span_tree_with_decision_event() {
         let trace = GenAiTrace::begin("claude-code");
-        assert_eq!(trace.invoke_agent.attributes["gen_ai.operation.name"], "invoke_agent");
-        assert_eq!(trace.invoke_agent.attributes["gen_ai.agent.name"], "claude-code");
-        assert_eq!(trace.invoke_agent.attributes["writ.semconv.pin"], SEMCONV_PIN);
+        assert_eq!(
+            trace.invoke_agent.attributes["gen_ai.operation.name"],
+            "invoke_agent"
+        );
+        assert_eq!(
+            trace.invoke_agent.attributes["gen_ai.agent.name"],
+            "claude-code"
+        );
+        assert_eq!(
+            trace.invoke_agent.attributes["writ.semconv.pin"],
+            SEMCONV_PIN
+        );
 
         let chat = trace.chat("claude-sonnet");
         assert_eq!(
@@ -253,7 +268,10 @@ mod tests {
         );
         assert_eq!(tool.events[0].name, "writ.policy.decision");
         assert_eq!(tool.events[0].attributes["writ.verdict"], "deny");
-        assert_eq!(tool.events[0].attributes["writ.rule_id"], "never-read-secrets");
+        assert_eq!(
+            tool.events[0].attributes["writ.rule_id"],
+            "never-read-secrets"
+        );
     }
 
     #[test]
@@ -280,9 +298,7 @@ mod tests {
         }
         let text = String::from_utf8(buf).unwrap();
         assert_eq!(text.lines().count(), 2);
-        let parsed: serde_json::Value =
-            serde_json::from_str(text.lines().next().unwrap()).unwrap();
+        let parsed: serde_json::Value = serde_json::from_str(text.lines().next().unwrap()).unwrap();
         assert_eq!(parsed["name"], "execute_tool fs.read");
     }
 }
-

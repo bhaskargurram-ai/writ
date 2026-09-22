@@ -24,17 +24,38 @@ fn resp(id: u64, result: serde_json::Value) -> JsonRpcMessage {
 fn end_to_end_forward_refuse_and_discovery() {
     let mut agent = MemoryTransport::default();
     agent.incoming = VecDeque::from(vec![
-        req(1, "initialize", Some(json!({"protocolVersion": "2025-06-18"}))),
+        req(
+            1,
+            "initialize",
+            Some(json!({"protocolVersion": "2025-06-18"})),
+        ),
         req(2, "tools/list", None),
-        req(3, "tools/call", Some(json!({"name": "fs.read", "arguments": {"path": "src/main.rs"}}))),
-        req(4, "tools/call", Some(json!({"name": "db.drop", "arguments": {}}))),
+        req(
+            3,
+            "tools/call",
+            Some(json!({"name": "fs.read", "arguments": {"path": "src/main.rs"}})),
+        ),
+        req(
+            4,
+            "tools/call",
+            Some(json!({"name": "db.drop", "arguments": {}})),
+        ),
     ]);
 
     let mut downstream = MemoryTransport::default();
     downstream.incoming = VecDeque::from(vec![
-        resp(1, json!({"protocolVersion": "2025-06-18", "capabilities": {}, "serverInfo": {"name": "fake", "version": "0.1"}})),
-        resp(2, json!({"tools": [{"name": "fs.read"}, {"name": "db.drop"}]})),
-        resp(3, json!({"content": [{"type": "text", "text": "file contents"}]})),
+        resp(
+            1,
+            json!({"protocolVersion": "2025-06-18", "capabilities": {}, "serverInfo": {"name": "fake", "version": "0.1"}}),
+        ),
+        resp(
+            2,
+            json!({"tools": [{"name": "fs.read"}, {"name": "db.drop"}]}),
+        ),
+        resp(
+            3,
+            json!({"content": [{"type": "text", "text": "file contents"}]}),
+        ),
     ]);
 
     // Capture every intercepted call; refuse db.drop with a rule-named refusal.
@@ -92,7 +113,12 @@ fn end_to_end_forward_refuse_and_discovery() {
     }
 
     // The refused call never reached the downstream server.
-    assert_eq!(proxy.downstream.sent.len(), 3, "downstream saw {:?}", proxy.downstream.sent);
+    assert_eq!(
+        proxy.downstream.sent.len(),
+        3,
+        "downstream saw {:?}",
+        proxy.downstream.sent
+    );
     assert!(proxy.downstream.sent.iter().all(|m| !matches!(
         m,
         JsonRpcMessage::Request(r) if r.id == RequestId::Num(4)
@@ -110,14 +136,21 @@ fn end_to_end_forward_refuse_and_discovery() {
 
 #[test]
 fn secrets_never_appear_in_serialized_calls() {
-    use writ_mcp::CredentialStore;
     use writ_core::SecretString;
+    use writ_mcp::CredentialStore;
 
     let mut store = CredentialStore::new();
-    store.add("github", "GITHUB_TOKEN", SecretString::new("ghp_supersecret"));
+    store.add(
+        "github",
+        "GITHUB_TOKEN",
+        SecretString::new("ghp_supersecret"),
+    );
     let mut env = std::collections::BTreeMap::new();
     store.inject_env("github", &mut env);
-    assert_eq!(env.get("GITHUB_TOKEN").map(|s| s.as_str()), Some("ghp_supersecret"));
+    assert_eq!(
+        env.get("GITHUB_TOKEN").map(|s| s.as_str()),
+        Some("ghp_supersecret")
+    );
 
     // A call constructed by the proxy contains no credential material.
     let call_json = serde_json::to_string(&ToolCall {

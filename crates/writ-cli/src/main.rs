@@ -111,15 +111,16 @@ enum PolicyCmd {
 fn main() -> anyhow::Result<()> {
     tracing_subscriber::fmt()
         .with_env_filter(
-            tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "warn".into()),
+            tracing_subscriber::EnvFilter::try_from_default_env().unwrap_or_else(|_| "warn".into()),
         )
         .with_writer(std::io::stderr)
         .init();
 
     let cli = Cli::parse();
     match cli.command {
-        Commands::Run { backend, cmd } => cmds::run(&cli.policy, &cli.ledger, cli.yolo, &backend, &cmd),
+        Commands::Run { backend, cmd } => {
+            cmds::run(&cli.policy, &cli.ledger, cli.yolo, &backend, &cmd)
+        }
         Commands::Proxy { mcp, server, cmd } => {
             cmds::proxy(&cli.policy, &cli.ledger, cli.yolo, mcp, &server, &cmd)
         }
@@ -136,7 +137,13 @@ fn main() -> anyhow::Result<()> {
             candidate,
             branch_from,
             ack_irreversible,
-        } => cmds::replay(&cli.ledger, &session, candidate, branch_from, ack_irreversible),
+        } => cmds::replay(
+            &cli.ledger,
+            &session,
+            candidate,
+            branch_from,
+            ack_irreversible,
+        ),
         Commands::Report { out } => cmds::report(&cli.ledger, &out),
     }
 }

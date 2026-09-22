@@ -194,7 +194,6 @@ pub fn read_frame<R: BufRead>(mut r: R) -> Result<Option<JsonRpcMessage>> {
     }
 }
 
-
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -248,8 +247,7 @@ mod tests {
             message: "rule R07: denied".into(),
             data: Some(json!({"writ_refusal": true})),
         };
-        let msg =
-            JsonRpcMessage::Response(JsonRpcResponse::error(RequestId::Str("x".into()), err));
+        let msg = JsonRpcMessage::Response(JsonRpcResponse::error(RequestId::Str("x".into()), err));
         let s = serde_json::to_string(&msg).unwrap();
         assert!(!s.contains("\"result\""));
         let back: JsonRpcMessage = serde_json::from_str(&s).unwrap();

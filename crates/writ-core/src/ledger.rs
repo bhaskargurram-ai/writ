@@ -12,14 +12,13 @@
 use crate::approver::ApproverIdentity;
 use crate::call::ToolCall;
 use crate::error::Result;
-use crate::verdict::Verdict;
 use crate::time::Timestamp;
+use crate::verdict::Verdict;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 
 pub const SCHEMA_VERSION: u32 = 1;
-pub const GENESIS_HASH: &str =
-    "0000000000000000000000000000000000000000000000000000000000000000";
+pub const GENESIS_HASH: &str = "0000000000000000000000000000000000000000000000000000000000000000";
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "lowercase")]
@@ -224,16 +223,17 @@ pub struct VerifyReport {
 
 /// Verify any store's chain. Store-independent so SQLite and Postgres
 /// backends share one evidentiary code path.
-pub fn verify_chain(
-    records: impl Iterator<Item = Result<LedgerRecord>>,
-) -> Result<VerifyReport> {
+pub fn verify_chain(records: impl Iterator<Item = Result<LedgerRecord>>) -> Result<VerifyReport> {
     let mut prev = GENESIS_HASH.to_string();
     let mut count = 0u64;
     for item in records {
         let rec = item?;
         let ok = rec.index == count
             && rec.prev_hash == prev
-            && rec.compute_hash().map(|h| h == rec.record_hash).unwrap_or(false);
+            && rec
+                .compute_hash()
+                .map(|h| h == rec.record_hash)
+                .unwrap_or(false);
         if !ok {
             return Ok(VerifyReport {
                 records: count,

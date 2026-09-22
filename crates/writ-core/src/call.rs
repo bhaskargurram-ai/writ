@@ -122,10 +122,7 @@ impl ToolCallContext {
 
 /// Minimal scheme/host split; avoids a URL crate dependency in the contract crate.
 fn extract_host(url: &str) -> Option<String> {
-    let no_scheme = url
-        .split_once("://")
-        .map(|(_, rest)| rest)
-        .unwrap_or(url);
+    let no_scheme = url.split_once("://").map(|(_, rest)| rest).unwrap_or(url);
     let host = no_scheme
         .split(['/', '?', '#'])
         .next()
@@ -151,8 +148,14 @@ mod tests {
 
     #[test]
     fn extracts_host_from_url() {
-        assert_eq!(extract_host("https://api.github.com/x"), Some("api.github.com".into()));
-        assert_eq!(extract_host("http://a.internal:8080/p?q=1"), Some("a.internal".into()));
+        assert_eq!(
+            extract_host("https://api.github.com/x"),
+            Some("api.github.com".into())
+        );
+        assert_eq!(
+            extract_host("http://a.internal:8080/p?q=1"),
+            Some("a.internal".into())
+        );
         assert_eq!(extract_host("not a url"), None);
     }
 

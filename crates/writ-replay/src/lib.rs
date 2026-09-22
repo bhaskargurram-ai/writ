@@ -56,7 +56,10 @@ pub fn load_trajectory(ledger: &Path, session_id: &str) -> Result<Vec<RecordedSt
         .into_iter()
         .map(|d| {
             let e = executions.get(&d.index).cloned();
-            RecordedStep { decision: d, execution: e }
+            RecordedStep {
+                decision: d,
+                execution: e,
+            }
         })
         .collect())
 }
@@ -113,8 +116,12 @@ pub fn policy_replay(steps: &[RecordedStep], candidate_source: &str) -> Result<R
     let mut changes = Vec::new();
     let mut unchanged = 0usize;
     for step in steps {
-        let Some(call) = &step.decision.call else { continue };
-        let Some(was_verdict) = &step.decision.verdict else { continue };
+        let Some(call) = &step.decision.call else {
+            continue;
+        };
+        let Some(was_verdict) = &step.decision.verdict else {
+            continue;
+        };
         let ctx = ToolCallContext::from_call(call);
         let now = engine.evaluate(&ctx);
         let (was, now_l) = (verdict_label(was_verdict), verdict_label(&now));

@@ -1,10 +1,10 @@
 //! Acceptance tests for the native engine against examples/writ.yaml
 //! (spec §7) and the shared fixture corpus.
 
+use std::path::PathBuf;
 use writ_core::verdict::{DefaultVerdict, Verdict};
 use writ_core::{PolicyEngine, ToolCallContext};
 use writ_policy::{load_fixtures_dir, run_fixtures, NativePolicyEngine};
-use std::path::PathBuf;
 
 fn examples_policy() -> String {
     let path = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../../examples/writ.yaml");
@@ -12,7 +12,10 @@ fn examples_policy() -> String {
 }
 
 fn ctx(tool: &str) -> ToolCallContext {
-    ToolCallContext { tool: tool.to_string(), ..Default::default() }
+    ToolCallContext {
+        tool: tool.to_string(),
+        ..Default::default()
+    }
 }
 
 fn engine() -> NativePolicyEngine {
@@ -34,9 +37,16 @@ fn denies_destructive_rm_rf() {
     let mut c = ctx("bash");
     c.command = Some("rm -rf /".to_string());
     match engine().evaluate(&c) {
-        Verdict::Deny { rule_id, reason, location } => {
+        Verdict::Deny {
+            rule_id,
+            reason,
+            location,
+        } => {
             assert_eq!(rule_id, "block-destructive-shell");
-            assert_eq!(reason, "Destructive system command. Narrow the path and retry.");
+            assert_eq!(
+                reason,
+                "Destructive system command. Narrow the path and retry."
+            );
             assert_eq!(location.as_deref(), Some("writ.yaml:6"));
         }
         v => panic!("expected deny, got {:?}", v),
@@ -48,9 +58,18 @@ fn drop_table_asks_irreversible_with_timeout() {
     let mut c = ctx("postgres.query");
     c.query = Some("DROP TABLE users;".to_string());
     match engine().evaluate(&c) {
-        Verdict::Ask { rule_id, diff, timeout_ms, irreversible, location } => {
+        Verdict::Ask {
+            rule_id,
+            diff,
+            timeout_ms,
+            irreversible,
+            location,
+        } => {
             assert_eq!(rule_id, "protect-production-db");
-            assert!(!diff.trim().is_empty(), "ask must carry a human reason/diff");
+            assert!(
+                !diff.trim().is_empty(),
+                "ask must carry a human reason/diff"
+            );
             assert_eq!(timeout_ms, Some(300_000)); // 5m
             assert!(irreversible);
             assert_eq!(location.as_deref(), Some("writ.yaml:11"));
@@ -64,9 +83,16 @@ fn disallowed_egress_denied_with_fallback_reason() {
     let mut c = ctx("http");
     c.url_host = Some("evil.example.net".to_string());
     match engine().evaluate(&c) {
-        Verdict::Deny { rule_id, reason, location } => {
+        Verdict::Deny {
+            rule_id,
+            reason,
+            location,
+        } => {
             assert_eq!(rule_id, "egress-allowlist");
-            assert!(!reason.trim().is_empty(), "deny must carry a human reason even when the rule omits one");
+            assert!(
+                !reason.trim().is_empty(),
+                "deny must carry a human reason even when the rule omits one"
+            );
             assert_eq!(location.as_deref(), Some("writ.yaml:17"));
         }
         v => panic!("expected deny, got {:?}", v),
@@ -76,7 +102,11 @@ fn disallowed_egress_denied_with_fallback_reason() {
 #[test]
 fn allowlisted_egress_is_not_denied() {
     let e = engine();
-    for host in ["api.github.com", "registry.npmjs.org", "api.internal.acme.com"] {
+    for host in [
+        "api.github.com",
+        "registry.npmjs.org",
+        "api.internal.acme.com",
+    ] {
         let mut c = ctx("http");
         c.url_host = Some(host.to_string());
         let v = e.evaluate(&c);
@@ -94,7 +124,11 @@ fn env_read_denied() {
     let mut c = ctx("fs.read");
     c.path = Some("/home/app/.env".to_string());
     match engine().evaluate(&c) {
-        Verdict::Deny { rule_id, reason, location } => {
+        Verdict::Deny {
+            rule_id,
+            reason,
+            location,
+        } => {
             assert_eq!(rule_id, "never-read-secrets");
             assert_eq!(reason, "Secrets are masked from the agent by design.");
             assert_eq!(location.as_deref(), Some("writ.yaml:21"));
@@ -108,7 +142,12 @@ fn unmatched_call_hits_default_ask() {
     let mut c = ctx("bash");
     c.command = Some("ls -la".to_string());
     match engine().evaluate(&c) {
-        Verdict::Ask { rule_id, diff, location, .. } => {
+        Verdict::Ask {
+            rule_id,
+            diff,
+            location,
+            ..
+        } => {
             assert_eq!(rule_id, "default");
             assert!(!diff.trim().is_empty());
             assert!(location.is_none());
@@ -116,7 +155,6 @@ fn unmatched_call_hits_default_ask() {
         v => panic!("expected default ask, got {:?}", v),
     }
 }
-
 
 #[test]
 fn reload_keeps_last_good_on_garbage() {
@@ -165,8 +203,14 @@ fn redact_verdict_carries_patterns() {
 #[test]
 fn redact_without_patterns_is_a_load_error() {
     let src = "version: 1\ndefault: allow\nrules:\n  - id: bad\n    when: tool == \"http\"\n    verdict: redact\n";
-    let err = NativePolicyEngine::from_source(src).unwrap_err().to_string();
-    assert!(err.contains("writ.yaml:4"), "error should point at the rule: {}", err);
+    let err = NativePolicyEngine::from_source(src)
+        .unwrap_err()
+        .to_string();
+    assert!(
+        err.contains("writ.yaml:4"),
+        "error should point at the rule: {}",
+        err
+    );
 }
 
 #[test]
@@ -193,7 +237,9 @@ fn first_matching_rule_wins() {
 fn default_deny_carries_reason() {
     let e = NativePolicyEngine::from_source("version: 1\ndefault: deny\nrules: []\n").unwrap();
     match e.evaluate(&ctx("anything")) {
-        Verdict::Deny { rule_id, reason, .. } => {
+        Verdict::Deny {
+            rule_id, reason, ..
+        } => {
             assert_eq!(rule_id, "default");
             assert!(!reason.trim().is_empty());
         }
@@ -205,7 +251,11 @@ fn default_deny_carries_reason() {
 fn shared_fixture_corpus_passes() {
     let dir = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("fixtures");
     let fixtures = load_fixtures_dir(&dir).expect("fixtures load");
-    assert!(fixtures.len() >= 6, "expected at least 6 fixtures, got {}", fixtures.len());
+    assert!(
+        fixtures.len() >= 6,
+        "expected at least 6 fixtures, got {}",
+        fixtures.len()
+    );
     let report = run_fixtures(&examples_policy(), &fixtures);
     assert!(report.is_pass(), "{}", report.summary());
     assert_eq!(report.passed, report.total);
@@ -217,7 +267,10 @@ fn harness_reports_mismatches() {
     let fixtures = vec![writ_policy::Fixture {
         name: "expect deny but policy allows".to_string(),
         policy: None,
-        ctx: writ_policy::FixtureCtx { tool: Some("bash".to_string()), ..Default::default() },
+        ctx: writ_policy::FixtureCtx {
+            tool: Some("bash".to_string()),
+            ..Default::default()
+        },
         expect: writ_policy::Expectation {
             verdict: writ_policy::ExpectedKind::Deny,
             rule_id: None,

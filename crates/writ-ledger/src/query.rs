@@ -62,10 +62,7 @@ pub fn sessions(path: impl AsRef<Path>) -> Result<Vec<SessionSummary>> {
 
 /// All records for one call — normally the `Decision` plus its linked
 /// `Execution` (ADR-003) — in ledger order.
-pub fn find_by_call_id(
-    path: impl AsRef<Path>,
-    call_id: &str,
-) -> Result<Vec<LedgerRecord>> {
+pub fn find_by_call_id(path: impl AsRef<Path>, call_id: &str) -> Result<Vec<LedgerRecord>> {
     let file = File::open(path.as_ref())?;
     let mut found = Vec::new();
     for item in record_iter(file) {

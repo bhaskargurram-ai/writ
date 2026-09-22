@@ -31,6 +31,9 @@ impl SandboxRegistry {
     }
 
     pub fn get(&mut self, name: &str) -> Option<&mut Box<dyn SandboxBackend>> {
-        self.backends.iter_mut().find(|(n, _)| *n == name).map(|(_, b)| b)
+        self.backends
+            .iter_mut()
+            .find(|(n, _)| *n == name)
+            .map(|(_, b)| b)
     }
 }
