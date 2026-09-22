@@ -27,7 +27,7 @@ jobs:
       matrix:
         target: [fuzz_policy_compile, fuzz_ledger_record_decode, fuzz_mcp_codec]
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@nightly
       - uses: Swatinem/rust-cache@v2
         with:
