@@ -188,8 +188,15 @@ pub fn proxy(
             }
             let mut text = result.to_string();
             for p in &patterns {
-                if let Ok(re) = regex::Regex::new(p) {
-                    text = re.replace_all(&text, "[redacted-by-writ]").to_string();
+                match regex::Regex::new(p) {
+                    Ok(re) => text = re.replace_all(&text, "[redacted-by-writ]").to_string(),
+                    // A pattern that does not compile cannot be applied, so the
+                    // result is withheld rather than passed through unmasked.
+                    Err(_) => {
+                        return serde_json::json!({"content": [{"type": "text",
+                            "text": "[output withheld by writ: a redact pattern for this call is invalid]"}],
+                            "isError": true});
+                    }
                 }
             }
             // Prefer returning valid JSON; if masking broke structure, return the
@@ -405,15 +412,31 @@ pub fn doctor(policy: &Path, ledger: &Path) -> Result<()> {
     println!();
     println!("kernel boundary ({}): {}", kh.platform, kh.mechanism);
     println!("  enforced: {} — {}", kh.enforced, kh.notes);
-    println!("  applies to: commands executed through the local-os sandbox backend;");
-    println!("              NOT to the agent process that `writ run` launches");
+    println!("  applies to: commands executed through the local-os sandbox backend");
+    let ic = writ_sandbox::interactive::capabilities();
+    let level = |s: &writ_sandbox::Support| match s {
+        writ_sandbox::Support::Full => "enforced".to_string(),
+        writ_sandbox::Support::Partial(w) => format!("PARTIAL — {w}"),
+        writ_sandbox::Support::Unavailable(w) => format!("NOT available — {w}"),
+    };
+    println!("  `writ run` agent boundary: {}", ic.mechanism);
+    println!(
+        "    writes confined to workspace + private temp + agent profile dirs: {}",
+        level(&ic.filesystem)
+    );
+    println!("    network: open and NOT filtered by default (no mechanism filters by host);");
+    println!("    --net none: {}", level(&ic.network_deny));
     println!();
 
     println!("interception coverage:");
     println!("  MCP proxy (mode A)     : ready — `writ proxy --mcp` governs every MCP tool call");
-    println!("  process wrap (mode B)  : launch supervision only; the wrapped agent runs outside the kernel boundary");
+    if ic.filesystem.is_full() {
+        println!("  process wrap (mode B)  : ready — `writ run` records the launch and confines the agent's writes (network open unless --net none); Claude Code tool calls go through `writ check` hooks");
+    } else {
+        println!("  process wrap (mode B)  : launch supervision only here — the agent boundary is unavailable, so `writ run` refuses unless --best-effort or --unconfined");
+    }
     println!(
-        "  SDK hooks (mode C)     : wave 3 — LangGraph / OpenAI Agents SDK / Claude Agent SDK"
+        "  SDK hooks (mode C)     : ready — `writ check` gateway; writ-sdk (LangGraph, OpenAI Agents SDK, Claude Agent SDK), @writ-agent/sdk"
     );
     println!();
     println!("\x1b[33mblind spots, stated plainly:\x1b[0m");

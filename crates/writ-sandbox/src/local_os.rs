@@ -145,7 +145,7 @@ impl LocalOsBackend {
 
 /// `canonicalize`, minus Windows' `\\?\` verbatim prefix where it is not
 /// needed (cmd.exe refuses verbatim paths as a working directory).
-fn canonical(p: &Path) -> Result<PathBuf> {
+pub(crate) fn canonical(p: &Path) -> Result<PathBuf> {
     let c = p.canonicalize().map_err(|e| {
         WritError::Sandbox(format!(
             "{} not canonicalizable (fail closed): {e}",

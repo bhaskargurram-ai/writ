@@ -102,18 +102,108 @@ pub(crate) fn profile(
     Ok(p)
 }
 
+/// Escape a path for an SBPL `#"..."` regex literal (raw: backslashes are
+/// literal, `"` cannot appear).
+fn sbpl_regex_literal(p: &Path) -> Result<String> {
+    let s = p.to_str().ok_or_else(|| {
+        WritError::Sandbox(format!(
+            "path {} is not UTF-8; cannot express it in a Seatbelt profile (fail closed)",
+            p.display()
+        ))
+    })?;
+    if s.chars().any(|c| c.is_control() || c == '"') {
+        return Err(WritError::Sandbox(format!(
+            "path {s:?} contains a quote or control character (fail closed)"
+        )));
+    }
+    let mut out = String::with_capacity(s.len() + 8);
+    for c in s.chars() {
+        if "\\.^$*+?()[]{}|".contains(c) {
+            out.push('\\');
+        }
+        out.push(c);
+    }
+    Ok(out)
+}
+
+/// Interactive profile (`writ run`): writes confined to `writable`
+/// (directories as subpaths; files as literals plus their `<file>.<suffix>`
+/// siblings, which atomic-rename writers such as Claude Code's
+/// `~/.claude.json.tmp.<pid>.<hex>` need), the terminal devices, and
+/// optionally no network at all. `protect` files stay unwritable even
+/// beneath a writable subpath: their deny rules come after the allow list
+/// (the last matching SBPL rule wins) and cover create, write, unlink and
+/// rename-over.
+pub(crate) fn profile_interactive(
+    writable: &[&Path],
+    protect: &[&Path],
+    confine_fs: bool,
+    deny_network: bool,
+) -> Result<String> {
+    let mut p = String::from("(version 1)\n(allow default)\n");
+    if confine_fs {
+        p.push_str("(deny file-write*)\n(allow file-write*\n");
+        for w in writable {
+            if w.is_dir() {
+                p.push_str(&format!("    (subpath {})\n", sbpl_string(w)?));
+            } else {
+                p.push_str(&format!("    (literal {})\n", sbpl_string(w)?));
+                p.push_str(&format!(
+                    "    (regex #\"^{}\\.[^/]+$\")\n",
+                    sbpl_regex_literal(w)?
+                ));
+            }
+        }
+        p.push_str(
+            "    (literal \"/dev/null\")\n    (literal \"/dev/zero\")\n    \
+             (literal \"/dev/stdout\")\n    (literal \"/dev/stderr\")\n    \
+             (literal \"/dev/dtracehelper\")\n    (literal \"/dev/tty\")\n    \
+             (literal \"/dev/ptmx\")\n    (regex #\"^/dev/ttys[0-9]+$\")\n    \
+             (regex #\"^/dev/fd/[0-9]+$\"))\n",
+        );
+        for f in protect {
+            p.push_str(&format!(
+                "(deny file-write* (literal {}))\n",
+                sbpl_string(f)?
+            ));
+        }
+    }
+    if deny_network {
+        p.push_str("(deny network*)\n");
+    }
+    Ok(p)
+}
+
 /// Parent-side prepared confinement.
 pub(crate) struct Confinement {
     profile: Arc<CString>,
 }
 
 impl Confinement {
+    /// Interactive variant (see [`profile_interactive`]).
+    pub(crate) fn build_interactive(
+        writable: &[&Path],
+        protect: &[&Path],
+        confine_fs: bool,
+        deny_network: bool,
+    ) -> Result<Self> {
+        Self::from_text(profile_interactive(
+            writable,
+            protect,
+            confine_fs,
+            deny_network,
+        )?)
+    }
+
     pub(crate) fn build(
         writable_dirs: &[&Path],
         confine_fs: bool,
         deny_network: bool,
     ) -> Result<Self> {
-        let text = profile(writable_dirs, confine_fs, deny_network)?;
+        Self::from_text(profile(writable_dirs, confine_fs, deny_network)?)
+    }
+
+    fn from_text(text: String) -> Result<Self> {
         let profile = CString::new(text).map_err(|_| {
             WritError::Sandbox("Seatbelt profile contains NUL (fail closed)".into())
         })?;
@@ -160,6 +250,36 @@ mod tests {
         assert!(p.contains("(deny network*)"));
         let open = profile(&[Path::new("/w")], true, false).unwrap();
         assert!(!open.contains("network"));
+    }
+
+    #[test]
+    fn interactive_profile_allows_files_siblings_and_ttys() {
+        let dir = std::env::temp_dir().canonicalize().unwrap();
+        let file = dir.join(format!("writ-sbpl-{}.json", std::process::id()));
+        std::fs::write(&file, b"{}").unwrap();
+        let prot = dir.join("settings.json");
+        let p = profile_interactive(
+            &[dir.as_path(), file.as_path()],
+            &[prot.as_path()],
+            true,
+            false,
+        )
+        .unwrap();
+        let _ = std::fs::remove_file(&file);
+        assert!(p.contains(&format!("(subpath \"{}\")", dir.display())));
+        assert!(p.contains(&format!("(literal \"{}\")", file.display())));
+        assert!(p.contains("\\.json\\.[^/]+$\")"), "{p}");
+        assert!(p.contains("/dev/ttys"));
+        assert!(!p.contains("network"));
+        let deny = format!("(deny file-write* (literal \"{}\"))", prot.display());
+        let allow_at = p.find("(allow file-write*").unwrap();
+        assert!(
+            p.find(&deny).unwrap() > allow_at,
+            "deny must follow the allow list"
+        );
+        assert!(profile_interactive(&[dir.as_path()], &[], true, true)
+            .unwrap()
+            .contains("(deny network*)"));
     }
 
     #[test]

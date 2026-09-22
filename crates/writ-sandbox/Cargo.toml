@@ -28,8 +28,9 @@ libc = "0.2"
 [target.'cfg(target_os = "macos")'.dependencies]
 libc = "0.2"
 
-# Windows kernel enforcement (spec §6B): AppContainer token + Job Object via
-# raw Win32 bindings. windows-sys 0.61 links through windows-link
+# Windows kernel enforcement (spec §6B) via raw Win32 bindings: AppContainer
+# token + Job Object (batch backend); Low integrity token + mandatory labels +
+# Job Object for interactive runs (Console: std handles, Ctrl-C handling). windows-sys 0.61 links through windows-link
 # (raw-dylib), which the MSVC toolchain builds; the version matches the one
 # already in the lock graph. Features are the minimum the adapter calls.
 [target.'cfg(windows)'.dependencies.windows-sys]
@@ -41,6 +42,7 @@ features = [
     "Win32_Security_Isolation",
     "Win32_Storage_FileSystem",
     "Win32_System_Com",
+    "Win32_System_Console",
     "Win32_System_JobObjects",
     "Win32_System_Pipes",
     "Win32_System_Services",

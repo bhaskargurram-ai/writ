@@ -8,12 +8,12 @@ any feature list.
 
 | Threat | Control | Residual risk |
 |---|---|---|
-| Agent runs a destructive command (hallucinated or injected) | Policy deny on matched patterns; kernel write and network boundary for commands run through the `local-os` sandbox backend (see below) | Novel command forms not matched by rules, mitigated by the fail-closed default (`default: ask`). The agent process launched by `writ run` is not yet inside the kernel boundary |
+| Agent runs a destructive command (hallucinated or injected) | Policy deny on matched patterns; kernel write and network boundary for commands run through the `local-os` sandbox backend (see below) | Novel command forms not matched by rules, mitigated by the fail-closed default (`default: ask`). The agent launched by `writ run` is inside a write boundary (see [Interactive boundary](#interactive-boundary-writ-run----agent)), but everything inside its writable set — the workspace above all — is fair game |
 | Data exfiltration to an attacker-controlled host | Sandboxed commands get no network at all (hostname allow-lists are refused, not approximated); credential injection at dispatch | Exfiltration through an allow-listed host (e.g. a permitted API with a write endpoint) |
 | Malicious or compromised MCP server | Per-server identity, scoped credentials, scanner verdict as a policy input (`server.trust`) | A trusted server that turns malicious between scans |
 | Irreversible action taken without authority | `ask` verdict with a human gate; `irreversible` marking | Approval fatigue — the human clicks allow. Mitigated by keeping `ask` rare and diffs precise |
 | Audit record altered after the fact | Hash chain; `writ verify`; optional signed receipts (Sigstore keyless) | Tamper-**evident** only until an external anchor (transparency log / append-only export) is configured |
-| Agent bypasses Writ entirely | Process wrap and MCP proxy as the only paths to credentials; `writ doctor` coverage report | **In MCP-proxy-only mode this is trivially possible**, and `writ run` supervises the launch but does not confine the agent. Stated loudly in the README and doctor output |
+| Agent bypasses Writ entirely | Process wrap (`writ run`: launch decision, kernel write boundary, Claude Code tool-call hooks) and MCP proxy; `writ doctor` coverage report | **In MCP-proxy-only mode this is trivially possible.** Under `writ run`, per-tool-call governance exists only for agents with a hook interface (Claude Code); other agents are confined but their individual tool calls are not decided. See the residuals below. Stated loudly in the README and doctor output |
 
 ## Kernel boundary (`local-os` sandbox backend)
 
@@ -31,6 +31,86 @@ running machine rather than assuming from the OS.
 
 No platform can filter egress by hostname at this layer, so a non-empty
 `allowed_hosts` fails closed rather than being silently widened.
+
+## Interactive boundary (`writ run -- <agent>`)
+
+`writ run` records one `process.exec` decision, then launches the agent
+**interactively** (the user's terminal, environment and exit code) inside a
+kernel boundary that confines **writes** and, on request, the network.
+Reads are not restricted: agents must read toolchains, node, their own
+install.
+
+**Writable set (default).** The workspace (cwd); a private temp dir created
+per run (TMPDIR / TEMP / TMP point at it; removed afterwards); the agent
+profile's own state dirs (claude: `~/.claude` or `$CLAUDE_CONFIG_DIR`,
+`~/.claude.json`, its cache; codex: `~/.codex` or `$CODEX_HOME`; gemini:
+`~/.gemini`; aider: `~/.aider`; unknown commands: nothing extra); and, when
+Claude Code hooks are on, the ledger's directory (`writ check` runs inside
+the boundary and appends there). Shared package caches (npm, pip, uv,
+cargo) are **not** writable by default — a writable cache poisons later
+unconfined runs of the same tools — and are only suggested for
+`--allow-write`. Default mode refuses to launch when the kernel cannot
+enforce the boundary; `--best-effort` runs and reports each gap;
+`--unconfined` launches with no boundary and says so.
+
+| Platform | Mechanism | Enforced | Not enforced |
+|---|---|---|---|
+| Linux | Landlock (files and dirs of the writable set, plus `/dev/tty`, `/dev/ptmx`, `/dev/pts`, `/dev/shm`) + seccomp | Writes outside the set denied (EACCES); `--net none`: `socket()` EPERM for every family; `--net open`: only unix/inet/inet6/netlink sockets, io_uring denied | Network with `--net open` (no host filtering); POSIX shared memory in `/dev/shm` is shared with the user's other processes |
+| macOS | Seatbelt profile | Writes outside the set denied (EPERM); `--net none`: `(deny network*)`; protected settings files denied by rules after the allow list | Network with `--net open`; mach IPC to system daemons |
+| Windows | Restricted token (no privileges, Administrators deny-only) at Low integrity + Low mandatory labels on the writable set + Job Object (kill-on-close, no breakaway) | Writes to anything not labelled Low denied (ERROR_ACCESS_DENIED) | `--net none` (a Low token cannot deny sockets; refused in default mode). Local COM/RPC/WMI brokers running at Medium are not blocked by integrity levels. FAT/exFAT volumes carry no labels (a writable path there is refused; other such volumes, e.g. USB drives, stay writable); integrity labels are not relied on for SMB shares. `%USERPROFILE%\AppData\LocalLow` is writable by any Low process |
+
+### Windows side effect: persistent integrity labels
+
+On Windows every path in the writable set (except the per-run temp dir)
+receives an explicit, inheritable **Low** mandatory label, and it **persists
+after the run**: any Low integrity process of the same user (a sandboxed
+browser renderer, a document reader's sandbox) can write there too.
+`writ run` lists every path that will be labelled *before* labelling it, and
+repeats the list after launch. Labelling is idempotent (already-labelled
+paths are skipped). To undo:
+
+```
+icacls "<path>" /setintegritylevel (OI)(CI)M
+```
+
+Add `/T` to also reset files the agent created (those carry their own Low
+label). Keep the writable set small: every `--allow-write` path is labelled
+the same way.
+
+### Claude Code hooks: what can and cannot switch them off
+
+With the claude profile (unless `--no-hooks`), writ passes its hooks with
+`claude --settings <file>`. The file lives in a writ-owned directory that is
+**not** in the writable set, and it pins `"disableAllHooks": false`.
+Per Claude Code's settings documentation, `--settings` outranks local,
+project and user settings, and `disableAllHooks` is read after precedence
+applies, so an agent that writes `disableAllHooks: true` into
+`~/.claude/settings.json`, `.claude/settings.json` or
+`.claude/settings.local.json` does not disable writ's hooks. Hook entries
+merge across levels, so deleting hooks from those files does not remove
+writ's either.
+
+It is **not** tamper-resistant:
+
+| Residual | Platform |
+|---|---|
+| The agent can rewrite `~/.claude/settings.json` and the workspace's `.claude/settings*.json` and plant hooks or permissions that take effect in **later sessions run outside writ**. macOS denies writes, deletes and renames of these files (Seatbelt deny after the allow list). Linux cannot: Landlock has no way to exclude a file beneath an allowed directory, and granting only `~/.claude`'s subdirectories breaks Claude Code's atomic top-level writes (`.credentials.json`, policy caches). Windows cannot: an explicit Medium label on the file blocks in-place writes, but measured, the Low agent can still delete it, rename a new file over it, or create it, through the Low-labelled parent directory. `writ run` says `protected: NO` on those platforms | Linux, Windows |
+| Managed settings outrank `--settings`: an administrator's `disableAllHooks` or `allowManagedHooksOnly` can switch writ's hooks off (the agent cannot write the managed-settings locations, which are outside the writable set) | all |
+| A `claude` the agent starts itself (e.g. `claude -p ...` from its shell tool) does not get writ's `--settings`: its tool calls are not decided by writ, though it runs inside the same kernel boundary | all |
+| The policy file and the ledger are only as safe as their location: inside the workspace (the default `.writ/`), or in the ledger directory granted for hooks, the agent can rewrite them. The hash chain makes after-the-fact edits evident on `writ verify`, not impossible; keep `--policy` outside the workspace | all |
+| Hooks exist only for agents with a hook interface; codex, gemini, aider and generic commands are confined but their individual tool calls are not governed | all |
+
+### Other residuals of the interactive boundary
+
+- Everything writable is writable: the workspace (including `.git/hooks`,
+  build scripts and editor configs that run later outside the boundary) and
+  the agent's state dirs.
+- The network is open by default and not filtered by host; exfiltration of
+  anything the agent can read is not prevented.
+- Linux: Landlock on filesystems with unstable inodes (WSL `/mnt/c`, some
+  FUSE) is refused for the workspace or may spuriously deny writes.
+- Descendants die with the run on Windows (Job kill-on-close); on Unix a
+  daemonized descendant outlives writ but stays confined.
 
 ## Explicitly out of scope
 

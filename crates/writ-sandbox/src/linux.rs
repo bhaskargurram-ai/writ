@@ -68,6 +68,34 @@ const MAX_ABI: i32 = 6;
 /// Device files every child may still write (`cmd > /dev/null`).
 const WRITABLE_DEVICES: &[&str] = &["/dev/null", "/dev/zero", "/dev/full"];
 
+/// Interactive runs also need the controlling terminal and pty creation
+/// (editors, pagers, credential prompts and pty-spawning tools open them
+/// directly rather than using the inherited descriptors).
+const INTERACTIVE_DEVICES: &[&str] = &[
+    "/dev/null",
+    "/dev/zero",
+    "/dev/full",
+    "/dev/tty",
+    "/dev/ptmx",
+];
+
+/// Directories beneath which interactive runs may write: pty slaves, and
+/// POSIX shared memory (`shm_open`: Python multiprocessing, Chromium).
+const INTERACTIVE_DEVICE_DIRS: &[&str] = &["/dev/pts", "/dev/shm"];
+
+/// Which seccomp filter an interactive child gets.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub(crate) enum NetFilter {
+    /// No filter.
+    None,
+    /// Deny-all egress (the batch backend's filter).
+    DenyAll,
+    /// Network open: only AF_UNIX / AF_INET / AF_INET6 / AF_NETLINK
+    /// sockets may be created, and io_uring is denied (kernel attack
+    /// surface; its socket ops would bypass the family check).
+    OpenHardened,
+}
+
 /// The running kernel's Landlock ABI version; 0 when unsupported/disabled.
 pub(crate) fn landlock_abi() -> i32 {
     // SAFETY: with a NULL attr and size 0, LANDLOCK_CREATE_RULESET_VERSION
@@ -215,15 +243,52 @@ impl Confinement {
         confine_fs: bool,
         deny_network: bool,
     ) -> Result<Self> {
+        Self::build_with(
+            writable_dirs,
+            WRITABLE_DEVICES,
+            &[],
+            confine_fs,
+            if deny_network {
+                NetFilter::DenyAll
+            } else {
+                NetFilter::None
+            },
+        )
+    }
+
+    /// Interactive variant (`writ run`): `writable` may name files as well
+    /// as directories; the terminal devices an interactive agent needs are
+    /// writable too; `net` picks the seccomp filter.
+    pub(crate) fn build_interactive(
+        writable: &[&Path],
+        confine_fs: bool,
+        net: NetFilter,
+    ) -> Result<Self> {
+        Self::build_with(
+            writable,
+            INTERACTIVE_DEVICES,
+            INTERACTIVE_DEVICE_DIRS,
+            confine_fs,
+            net,
+        )
+    }
+
+    fn build_with(
+        writable: &[&Path],
+        devices: &[&str],
+        device_dirs: &[&str],
+        confine_fs: bool,
+        net: NetFilter,
+    ) -> Result<Self> {
         let ruleset = if confine_fs {
-            Some(build_ruleset(writable_dirs)?)
+            Some(build_ruleset(writable, devices, device_dirs)?)
         } else {
             None
         };
-        let bpf = if deny_network {
-            Some(Arc::new(build_network_filter()?))
-        } else {
-            None
+        let bpf = match net {
+            NetFilter::None => None,
+            NetFilter::DenyAll => Some(Arc::new(build_network_filter()?)),
+            NetFilter::OpenHardened => Some(Arc::new(build_open_network_filter()?)),
         };
         Ok(Confinement { ruleset, bpf })
     }
@@ -243,7 +308,7 @@ impl Confinement {
     }
 }
 
-fn build_ruleset(writable_dirs: &[&Path]) -> Result<OwnedFd> {
+fn build_ruleset(writable: &[&Path], devices: &[&str], device_dirs: &[&str]) -> Result<OwnedFd> {
     let abi_num = landlock_abi().min(MAX_ABI);
     if abi_num <= 0 {
         return Err(WritError::Sandbox(
@@ -261,23 +326,34 @@ fn build_ruleset(writable_dirs: &[&Path]) -> Result<OwnedFd> {
         ruleset = ruleset.scope(Scope::from_all(abi)).map_err(ll_err)?;
     }
     let mut created = ruleset.create().map_err(ll_err)?;
-    for dir in writable_dirs {
-        let fd = PathFd::new(dir).map_err(|e| {
+    let file_write = write & AccessFs::from_file(abi);
+    for path in writable {
+        let fd = PathFd::new(path).map_err(|e| {
             WritError::Sandbox(format!(
                 "cannot open {} for the Landlock rule (fail closed): {e}",
-                dir.display()
+                path.display()
             ))
         })?;
+        // A rule on a file may only carry file rights.
+        let rights = if path.is_dir() { write } else { file_write };
         created = created
-            .add_rule(PathBeneath::new(fd, write))
+            .add_rule(PathBeneath::new(fd, rights))
             .map_err(ll_err)?;
     }
-    let file_write = write & AccessFs::from_file(abi);
-    for dev in WRITABLE_DEVICES {
+    for dev in devices {
         if let Ok(fd) = PathFd::new(dev) {
             created = created
                 .add_rule(PathBeneath::new(fd, file_write))
                 .map_err(ll_err)?;
+        }
+    }
+    for dir in device_dirs {
+        if Path::new(dir).is_dir() {
+            if let Ok(fd) = PathFd::new(dir) {
+                created = created
+                    .add_rule(PathBeneath::new(fd, write))
+                    .map_err(ll_err)?;
+            }
         }
     }
     let fd: Option<OwnedFd> = created.into();
@@ -316,6 +392,57 @@ fn build_network_filter() -> Result<BpfProgram> {
     #[cfg(target_arch = "x86_64")]
     {
         // x32 ABI: same AUDIT_ARCH_X86_64, syscall number | 0x4000_0000.
+        const X32: i64 = 0x4000_0000;
+        rules.insert(X32 | libc::SYS_socket, vec![]);
+        rules.insert(X32 | libc::SYS_socketpair, vec![]);
+        rules.insert(X32 | libc::SYS_io_uring_setup, vec![]);
+    }
+    let filter = SeccompFilter::new(
+        rules,
+        SeccompAction::Allow,
+        SeccompAction::Errno(libc::EPERM as u32),
+        arch,
+    )
+    .map_err(err)?;
+    BpfProgram::try_from(filter).map_err(err)
+}
+
+/// Network open, hardened: `socket(2)` / `socketpair(2)` of any family but
+/// AF_UNIX, AF_INET, AF_INET6 and AF_NETLINK, and `io_uring_setup(2)`, fail
+/// with EPERM (x32 variants: denied outright).
+fn build_open_network_filter() -> Result<BpfProgram> {
+    let err = |e: seccompiler::BackendError| {
+        WritError::Sandbox(format!(
+            "seccomp filter construction failed (fail closed): {e}"
+        ))
+    };
+    let arch = target_arch().ok_or_else(|| {
+        WritError::Sandbox(format!(
+            "no seccomp filter for architecture {} (fail closed)",
+            std::env::consts::ARCH
+        ))
+    })?;
+    let other_family = || -> Result<Vec<SeccompRule>> {
+        let conds = [
+            libc::AF_UNIX,
+            libc::AF_INET,
+            libc::AF_INET6,
+            libc::AF_NETLINK,
+        ]
+        .iter()
+        .map(|&f| {
+            SeccompCondition::new(0, SeccompCmpArgLen::Dword, SeccompCmpOp::Ne, f as u64)
+                .map_err(err)
+        })
+        .collect::<Result<Vec<_>>>()?;
+        Ok(vec![SeccompRule::new(conds).map_err(err)?])
+    };
+    let mut rules: BTreeMap<i64, Vec<SeccompRule>> = BTreeMap::new();
+    rules.insert(libc::SYS_socket, other_family()?);
+    rules.insert(libc::SYS_socketpair, other_family()?);
+    rules.insert(libc::SYS_io_uring_setup, vec![]);
+    #[cfg(target_arch = "x86_64")]
+    {
         const X32: i64 = 0x4000_0000;
         rules.insert(X32 | libc::SYS_socket, vec![]);
         rules.insert(X32 | libc::SYS_socketpair, vec![]);
@@ -379,6 +506,8 @@ mod tests {
         if target_arch().is_some() {
             let prog = build_network_filter().unwrap();
             assert!(!prog.is_empty() && prog.len() < 4096);
+            let open = build_open_network_filter().unwrap();
+            assert!(!open.is_empty() && open.len() < 4096);
         }
     }
 

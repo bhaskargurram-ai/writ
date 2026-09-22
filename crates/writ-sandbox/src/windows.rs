@@ -113,21 +113,21 @@ const ACCESS_ALLOWED_ACE_TYPE: u8 = 0;
 /// best-effort mode with a non-empty allow-list (network then OPEN).
 const NETWORK_CAPABILITY_SIDS: &[&str] = &["S-1-15-3-1", "S-1-15-3-3"];
 
-fn sb_err(ctx: &str) -> WritError {
+pub(crate) fn sb_err(ctx: &str) -> WritError {
     WritError::Sandbox(format!(
         "{ctx}: {} (fail closed)",
         io::Error::last_os_error()
     ))
 }
 
-fn code_err(ctx: &str, code: u32) -> WritError {
+pub(crate) fn code_err(ctx: &str, code: u32) -> WritError {
     WritError::Sandbox(format!(
         "{ctx}: {} (fail closed)",
         io::Error::from_raw_os_error(code as i32)
     ))
 }
 
-fn wide(s: &OsStr) -> Result<Vec<u16>> {
+pub(crate) fn wide(s: &OsStr) -> Result<Vec<u16>> {
     let mut v: Vec<u16> = s.encode_wide().collect();
     if v.contains(&0) {
         return Err(WritError::Sandbox(format!(
@@ -140,8 +140,8 @@ fn wide(s: &OsStr) -> Result<Vec<u16>> {
 }
 
 /// A SID allocated by the OS, freed with the matching deallocator.
-struct Sid {
-    ptr: PSID,
+pub(crate) struct Sid {
+    pub(crate) ptr: PSID,
     local: bool,
 }
 
@@ -194,7 +194,7 @@ fn derive_sid(name: &str) -> Result<Sid> {
     })
 }
 
-fn string_sid(s: &str) -> Result<Sid> {
+pub(crate) fn string_sid(s: &str) -> Result<Sid> {
     let w = wide(OsStr::new(s))?;
     let mut sid: PSID = null_mut();
     // SAFETY: w is NUL-terminated; sid is a valid out-pointer.
@@ -460,7 +460,7 @@ pub(crate) fn prepare_container(container: &str, workspace: &Path) -> Result<(St
     Ok((sid_string, temp))
 }
 
-fn owned(h: HANDLE) -> OwnedHandle {
+pub(crate) fn owned(h: HANDLE) -> OwnedHandle {
     // SAFETY: callers pass a freshly created, valid handle they own.
     unsafe { OwnedHandle::from_raw_handle(h) }
 }
@@ -588,7 +588,7 @@ fn append_arg(cmd: &mut Vec<u16>, arg: &OsStr, force_quotes: bool) {
     }
 }
 
-fn command_line(exe: &Path, args: &[String]) -> Result<Vec<u16>> {
+pub(crate) fn command_line(exe: &Path, args: &[String]) -> Result<Vec<u16>> {
     if exe.as_os_str().encode_wide().any(|c| c == u16::from(b'"')) {
         return Err(WritError::Sandbox(
             "program path contains '\"' (fail closed)".into(),
@@ -611,7 +611,7 @@ fn command_line(exe: &Path, args: &[String]) -> Result<Vec<u16>> {
 
 /// Case-insensitive environment merge (later entries win), as a sorted
 /// Unicode environment block.
-fn env_block(vars: &[(String, String)]) -> Result<(Vec<u16>, Option<String>)> {
+pub(crate) fn env_block(vars: &[(String, String)]) -> Result<(Vec<u16>, Option<String>)> {
     let mut merged: BTreeMap<String, (String, String)> = BTreeMap::new();
     for (k, v) in vars {
         if k.is_empty() || k.contains('=') || k.contains('\0') || v.contains('\0') {
@@ -680,12 +680,12 @@ fn inheritable_nul() -> Result<OwnedHandle> {
 }
 
 /// A proc-thread attribute list backed by an 8-byte-aligned buffer.
-struct AttrList {
+pub(crate) struct AttrList {
     buf: Vec<u64>,
 }
 
 impl AttrList {
-    fn new(count: u32) -> Result<Self> {
+    pub(crate) fn new(count: u32) -> Result<Self> {
         let mut size = 0usize;
         // SAFETY: size query: a null list with a valid size out-pointer
         // (returns FALSE with ERROR_INSUFFICIENT_BUFFER by contract).
@@ -704,14 +704,19 @@ impl AttrList {
         Ok(list)
     }
 
-    fn ptr(&mut self) -> LPPROC_THREAD_ATTRIBUTE_LIST {
+    pub(crate) fn ptr(&mut self) -> LPPROC_THREAD_ATTRIBUTE_LIST {
         self.buf.as_mut_ptr() as LPPROC_THREAD_ATTRIBUTE_LIST
     }
 
     /// # Safety
     /// `value` must point at `size` bytes that stay valid and unmoved until
     /// the list is dropped (the list stores the pointer, not a copy).
-    unsafe fn set(&mut self, attribute: usize, value: *const c_void, size: usize) -> Result<()> {
+    pub(crate) unsafe fn set(
+        &mut self,
+        attribute: usize,
+        value: *const c_void,
+        size: usize,
+    ) -> Result<()> {
         // SAFETY: list is initialized; the caller guarantees value/size.
         if unsafe {
             UpdateProcThreadAttribute(self.ptr(), 0, attribute, value, size, null_mut(), null())

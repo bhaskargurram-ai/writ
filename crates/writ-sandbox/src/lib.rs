@@ -9,8 +9,10 @@
 #![deny(unsafe_code)]
 #![deny(unsafe_op_in_unsafe_fn)]
 
+pub mod agents;
 pub mod detect;
 pub mod enforce;
+pub mod interactive;
 pub mod local_os;
 pub mod platform;
 
@@ -26,15 +28,22 @@ mod unix;
 #[cfg(windows)]
 #[allow(unsafe_code)]
 mod windows;
+#[cfg(windows)]
+#[allow(unsafe_code)]
+mod windows_interactive;
 
 pub use detect::{detect_backends, BackendInfo};
 pub use enforce::{Capabilities, EnforcementMode, EnforcementReport, Level, Support};
+pub use interactive::{spawn_interactive, InteractiveChild, InteractiveReport, Net, Profile};
 pub use local_os::LocalOsBackend;
 pub use platform::{capabilities, kernel_hardening, KernelHardening};
 
 /// Maximum simultaneously live processes per run on Windows (Job Object).
 #[cfg(windows)]
 pub use windows::ACTIVE_PROCESS_LIMIT;
+/// Maximum simultaneously live processes in an interactive run on Windows.
+#[cfg(windows)]
+pub use windows_interactive::INTERACTIVE_PROCESS_LIMIT;
 
 use writ_core::sandbox::SandboxBackend;
 
