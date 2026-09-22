@@ -89,12 +89,17 @@ version `v: 1`; changes are additive only.
 {"v":1,"id":"r1","decision":"allow","dispatch":true,"rule_id":"read-only","ref":"..."}
 {"v":1,"id":"r1","decision":"deny","dispatch":false,"rule_id":"no-rm","reason":"...","location":"writ.yaml:12","ref":"..."}
 {"v":1,"id":"r1","decision":"ask","dispatch":false,"approval":"required","rule_id":"prod","reason":"<diff>","irreversible":true,"timeout_ms":60000,"ref":"..."}
+{"v":1,"id":"r1","decision":"deny","dispatch":false,"verdict":"ask","rule_id":"prod","reason":"rule \"prod\" requires human approval; ...","location":"writ.yaml:20","ref":"..."}
 {"v":1,"id":"r1","decision":"redact","dispatch":true,"rule_id":"pii","patterns":["\d{3}-\d{2}-\d{4}"],"ref":"..."}
 {"v":1,"id":"r3","recorded":true,"output":"<redacted output, only for redact>"}
 {"v":1,"id":"r1","error":{"code":"bad_request","message":"..."}}
 ```
 
-- `ref` is opaque; pass it back unchanged to `resolve`/`complete`.
+- `ref` is opaque; pass it back unchanged. The `ref` in a `resolve`
+  response supersedes the decide-time ref: `complete` for an approved ask
+  must use the resolve-time ref (the decide-time ref of an ask is refused).
+- The third example is `--ask defer`; the fourth is the same ask under the
+  default `--ask deny`: `decision:"deny"` plus `verdict:"ask"`.
 - `ask` handling is `--ask deny|defer` (default `deny`, fail-closed, since
   `writ check` has no terminal). With `defer`, `ask` comes back with
   `approval:"required"`; the adapter obtains a human decision through the
@@ -105,6 +110,57 @@ version `v: 1`; changes are additive only.
 - Ledger semantics are unchanged (Contract 3): exactly one Decision record
   per intercepted call, one Execution record per `complete`.
 
+**Clarifications (additive, from the Wave 2 implementation in
+`crates/writ-cli/src/hook.rs`).**
+- *Deferred asks in the ledger.* The Decision record (engine verdict `ask`,
+  `approver: null`) is written at `decide` time, so an ask that is never
+  resolved is still on the record: an `ask` decision with no linked
+  Execution record = never dispatched. `resolve` writes no record. An
+  approval is evidenced by the Execution record written at `complete`,
+  whose `approver` field carries the resolving approver (schema v1
+  unchanged; `approver` is already a field of every record). A rejection
+  writes nothing further. Under `--ask deny` the Decision record carries
+  the fail-closed approver's identity, as `handle_call` does, and a
+  `resolve` of it is `invalid_state`.
+- *Resolve.* The response is final: `decision:"allow"`, `dispatch:true`
+  (approved) or `decision:"deny"`, `dispatch:false` (rejected or timed
+  out), never `"ask"`. `timeout_ms` counts from decide time (the Decision
+  record's `recorded_at`, which has one-second precision, so a timeout can
+  fire up to 1s early — never late). `approver` is optional:
+  `"human:<id>"` is recorded as kind `tui`, `"rbac:<id>"` as `rbac`,
+  anything else as `out_of_band` with the whole string as id; a missing
+  approver is recorded as `out_of_band`/`"unattributed"`. Resolving an
+  already-resolved ref, or a call that already completed, is `invalid_state`.
+- *Complete.* Requires `ok` and/or `exit` (`exit_status` = `exit`, else 0
+  for `ok:true`, 1 for `ok:false`). `output` is text (adapters
+  JSON-stringify structured results); its SHA-256 is recorded, the text is
+  not. For a `redact` verdict, `output` is always returned when `output`
+  was sent — also for `ok:false` (failure text is masked too); masking
+  replaces each regex match with the token `[redacted-by-writ]` (as the MCP
+  proxy does); an invalid pattern is an `error`, never unmasked output. A second `complete` for the same decision, or a `complete` for a
+  `deny` or an unapproved `ask`, is `invalid_state`.
+- *Refs* are self-contained (`w1.<decision index>.<decision record_hash>`,
+  plus the approver after an approval): they stay valid across processes
+  and gateway restarts (an adapter may resolve/complete with a ref from a
+  crashed `--stdio` child), and are validated against the ledger on every
+  use: the record must exist, be a Decision, and carry that hash, else
+  `bad_ref`.
+- *Repeated `call_id`.* A second `decide` with a `call_id` already used in
+  the session is a new intercepted call: it gets its own Decision record
+  and a fresh ref (a retry is a real attempt), never a reuse of the earlier
+  decision. Each ref completes at most once.
+- *`--stdio`* is stateless between requests: one process keeps accepting
+  requests while an earlier deferred ask waits for its `resolve`
+  (adapters may pipeline). Blank lines get no response.
+- *`id`* is echoed whenever the request parsed as JSON (`null` if absent);
+  a malformed line is answered with `id: null`.
+- *Error codes:* `bad_request`, `unknown_op`, `bad_ref`, `invalid_state`,
+  `policy_error` (missing/invalid policy or redact pattern), `ledger_error`,
+  `internal`.
+- *Concurrency:* `FileLedgerStore` serializes appends with an exclusive
+  lock on `<ledger>.lock` and checks each append against the tip on disk;
+  writers retry lost races (`writ_ledger::retry_append`).
+
 **`--format claude-code`.** stdin is a Claude Code hook payload
 (`PreToolUse` → decide, `PostToolUse` → complete, keyed by `tool_use_id`
 within `session_id`); stdout is Claude Code's hook JSON. A writ `ask` maps to
@@ -112,6 +168,38 @@ Claude Code's own permission prompt (`permissionDecision: "ask"`), `deny` to
 `"deny"` with the rule's reason, `allow`/`redact` to `"allow"`.
 `writ integrate claude-code` writes the hook entries into
 `.claude/settings.json` (project) without disturbing existing settings.
+
+Claude Code specifics (verified against https://code.claude.com/docs/en/hooks):
+- Exit codes: the "`1` = writ error" rule above is for `--format writ`
+  only. Claude Code treats any exit code other than 2 without a valid
+  decision as a *non-blocking* error and runs the tool, so in this format
+  every writ-side failure (malformed payload, missing or unparseable
+  policy, ledger error, panic, ...) prints `permissionDecision:"deny"` when
+  it can and always exits **2** with the reason on stderr; `deny` also
+  exits 2; `allow`/`redact`/`ask` exit 0. Nothing in this format exits 1.
+  On `PostToolUse`/`PostToolUseFailure` (the tool already ran) a failure to
+  correlate or record exits 2 with stderr, which Claude Code shows to
+  Claude. (A missing binary or a hook timeout is outside writ's control and
+  does not block in Claude Code.)
+- `PostToolUseFailure` is also handled (execution record with the
+  `Exit code N` from `error`, else 1). `call_id = tool_use_id`; the
+  `PostToolUse` is correlated to its decision through the ledger. An `ask`
+  approved in Claude Code's prompt is evidenced by an Execution record with
+  approver `{kind: tui, id: "claude-code-prompt"}`.
+- `redact` returns `hookSpecificOutput.updatedToolOutput`: the
+  `tool_response` with every string leaf masked (shape preserved). If the
+  decision cannot be found or masking fails, every string leaf is masked and
+  the hook exits 2. Failure (`PostToolUseFailure`) text cannot be replaced
+  by a hook and is not masked.
+- Tool mapping (same table as the Python/TypeScript adapters): `Bash`,
+  `PowerShell` → `bash`; `Read`/`Glob`/`Grep`/`LS`/`NotebookRead` →
+  `fs.read`; `Write`/`Edit`/`MultiEdit`/`NotebookEdit` → `fs.write` (a
+  `path` arg is added from `file_path`/`notebook_path`); `WebFetch` → `http`;
+  `WebSearch` → `web.search`; `mcp__<server>__<tool>` → `<tool>` with
+  `server.name = <server>`; anything else keeps its name.
+- The hook entries use exec form (`command` = absolute writ path, `args` =
+  `--policy P --ledger L check --format claude-code --ask defer`) for
+  `PreToolUse`, `PostToolUse` and `PostToolUseFailure`, matcher `*`.
 
 ## Pipeline (`writ_core::pipeline`)
 

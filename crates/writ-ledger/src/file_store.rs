@@ -9,28 +9,101 @@
 //! be torn. [`FileLedgerStore::open`] stops at the last valid record in
 //! that case; an unparseable line anywhere else is a hard error, because
 //! mid-file corruption is evidence of tampering, not of a crash.
+//!
+//! # Many writers, one chain
+//!
+//! Several processes may append to one ledger at the same time (for example
+//! one `writ check` per parallel tool call). Appends are serialized across
+//! processes by an exclusive OS file lock on a sibling lock file,
+//! `<ledger>.lock` (e.g. `ledger.jsonl.lock`), taken with `std`'s
+//! [`File::try_lock`]. The lock file is created on demand and never
+//! deleted (deleting a lock file races with its next user); the OS drops
+//! the lock when its holder exits, so a crashed writer cannot wedge the
+//! ledger. A writer that cannot get the lock within [`LOCK_TIMEOUT`] fails
+//! closed with a `WritError::Ledger`.
+//!
+//! Under the lock, [`append`](LedgerStore::append):
+//! 1. re-reads every record other writers appended since this handle last
+//!    looked (link-checking each one), so the tip it checks against is the
+//!    tip *on disk*, never a cached one;
+//! 2. repairs a torn tail left by a writer that crashed mid-line (no other
+//!    writer can be mid-line while the lock is held);
+//! 3. rejects the record unless its `index` and `prev_hash` extend that tip;
+//! 4. writes, flushes and `sync_data`s, then releases the lock.
+//!
+//! The chain therefore cannot fork. A writer that built its record on a tip
+//! that has since moved gets `WritError::Ledger("append rejected: ...")`
+//! and must rebuild the record on the new tip — exactly the SQLite store's
+//! contract. [`LedgerWriter`](writ_core::ledger::LedgerWriter) reads
+//! [`tip`](LedgerStore::tip) fresh from disk on every call, so retrying the
+//! `record_*` call is the whole recovery; [`retry_append`] does that for
+//! the pre-write rejections only (a record that may already be on disk is
+//! never retried, so a retry can never duplicate a record).
+//!
+//! Readers take no lock. [`tip`](LedgerStore::tip), [`len`](LedgerStore::len),
+//! [`get`](LedgerStore::get) and [`iter`](LedgerStore::iter) see records
+//! other processes appended, and ignore an unterminated final line that does
+//! not parse (a write in progress, or a torn tail awaiting repair).
 
-use std::fs::{File, OpenOptions};
-use std::io::{BufRead, BufReader, Read, Write};
+use std::cell::RefCell;
+use std::ffi::OsString;
+use std::fs::{File, OpenOptions, TryLockError};
+use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant};
 
 use writ_core::error::{Result, WritError};
 use writ_core::ledger::{LedgerRecord, LedgerStore, GENESIS_HASH};
 
-/// Append-only JSONL ledger. State (`len`, tip hash, tip record) is rebuilt
-/// by scanning the file at [`open`](FileLedgerStore::open).
-#[derive(Debug)]
-pub struct FileLedgerStore {
-    path: PathBuf,
+/// How long an append waits for another writer's lock before failing.
+pub const LOCK_TIMEOUT: Duration = Duration::from_secs(10);
+
+/// Pre-write rejections [`retry_append`] retries before giving up.
+pub const APPEND_RETRIES: u32 = 64;
+
+/// What this handle has read of the file so far.
+#[derive(Debug, Clone)]
+struct ChainState {
+    /// Byte offset just past the last record consumed.
+    offset: u64,
     len: u64,
     tip_hash: String,
     tip_record: Option<LedgerRecord>,
 }
 
+impl ChainState {
+    fn empty() -> Self {
+        ChainState {
+            offset: 0,
+            len: 0,
+            tip_hash: GENESIS_HASH.to_string(),
+            tip_record: None,
+        }
+    }
+}
+
+/// Append-only JSONL ledger, safe for concurrent writers in any number of
+/// processes (see the [module docs](self)).
+#[derive(Debug)]
+pub struct FileLedgerStore {
+    path: PathBuf,
+    lock_path: PathBuf,
+    state: RefCell<ChainState>,
+}
+
+/// Holds the exclusive ledger lock; released when dropped.
+struct LockGuard(File);
+
+impl Drop for LockGuard {
+    fn drop(&mut self) {
+        let _ = self.0.unlock();
+    }
+}
+
 impl FileLedgerStore {
-    /// Open (creating file and parent dirs if absent) and rebuild in-memory
-    /// state by scanning existing lines. A torn final line is truncated from
-    /// the logical view; any other corruption is a `WritError::Ledger`.
+    /// Open (creating file and parent dirs if absent) and link-check every
+    /// existing line. A torn final line is truncated (under the writer
+    /// lock); any other corruption is a `WritError::Ledger`.
     pub fn open(path: impl AsRef<Path>) -> Result<Self> {
         let path = path.as_ref().to_path_buf();
         if let Some(parent) = path.parent() {
@@ -44,20 +117,19 @@ impl FileLedgerStore {
             .append(true)
             .create(true)
             .open(&path)?;
-        let mut store = FileLedgerStore {
+        let mut lock_path = OsString::from(path.as_os_str());
+        lock_path.push(".lock");
+        let store = FileLedgerStore {
             path,
-            len: 0,
-            tip_hash: GENESIS_HASH.to_string(),
-            tip_record: None,
+            lock_path: PathBuf::from(lock_path),
+            state: RefCell::new(ChainState::empty()),
         };
-        if let Some(torn_at) = store.rescan()? {
-            // Truncate the torn tail so the next append does not strand the
-            // partial bytes mid-file. Only unparseable bytes past the last
-            // valid record are dropped — no record is ever mutated (ADR-003).
-            OpenOptions::new()
-                .write(true)
-                .open(&store.path)?
-                .set_len(torn_at)?;
+        if store.refresh()? {
+            // Torn tail: repair it under the lock so a concurrent writer's
+            // in-progress line is never mistaken for crash debris.
+            let _guard = store.lock()?;
+            store.refresh()?;
+            store.repair_tail()?;
         }
         Ok(store)
     }
@@ -66,86 +138,146 @@ impl FileLedgerStore {
         &self.path
     }
 
-    /// Rebuild `len` / tip state from disk. Cheap link checks only (index
-    /// sequence + prev_hash chain); full hash verification is `verify()`.
-    /// Returns the byte offset of a torn tail, if one was found.
-    fn rescan(&mut self) -> Result<Option<u64>> {
-        let file = File::open(&self.path)?;
+    /// The sibling lock file that serializes appends across processes.
+    pub fn lock_path(&self) -> &Path {
+        &self.lock_path
+    }
+
+    fn lock(&self) -> Result<LockGuard> {
+        let file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&self.lock_path)?;
+        let deadline = Instant::now() + LOCK_TIMEOUT;
+        loop {
+            match file.try_lock() {
+                Ok(()) => return Ok(LockGuard(file)),
+                Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
+                    std::thread::sleep(Duration::from_millis(2));
+                }
+                Err(TryLockError::WouldBlock) => {
+                    return Err(WritError::Ledger(format!(
+                        "ledger {:?}: another writer held {:?} for more than {:?} (fail closed)",
+                        self.path, self.lock_path, LOCK_TIMEOUT
+                    )))
+                }
+                Err(TryLockError::Error(e)) => return Err(e.into()),
+            }
+        }
+    }
+
+    /// Consume records appended since the last refresh, link-checking each.
+    /// Returns `true` if unparseable bytes follow the last record (a torn
+    /// tail, or — without the lock — possibly a write in progress).
+    fn refresh(&self) -> Result<bool> {
+        let mut st = self.state.borrow_mut();
+        let mut file = File::open(&self.path)?;
+        let file_len = file.metadata()?.len();
+        if file_len < st.offset {
+            return Err(WritError::Ledger(format!(
+                "ledger {:?} shrank below its last committed record (truncated or rewritten)",
+                self.path
+            )));
+        }
+        file.seek(SeekFrom::Start(st.offset))?;
         let mut reader = BufReader::new(file);
-        let mut line = String::new();
-        let mut offset = 0u64; // byte offset of the current line
-        let mut torn_at = None;
-        let mut expected = 0u64;
-        let mut prev = GENESIS_HASH.to_string();
-        let mut tip_record = None;
+        let mut line = Vec::new();
         loop {
             line.clear();
-            let line_start = offset;
-            let n = reader.read_line(&mut line)? as u64;
+            let n = reader.read_until(b'\n', &mut line)? as u64;
             if n == 0 {
-                break; // EOF
+                return Ok(false); // EOF
             }
-            offset += n;
-            let trimmed = line.trim_end();
+            let trimmed = trim_ascii(&line);
             if trimmed.is_empty() {
-                continue; // tolerate stray blank lines
+                st.offset += n; // tolerate stray blank lines
+                continue;
             }
-            match serde_json::from_str::<LedgerRecord>(trimmed) {
+            match serde_json::from_slice::<LedgerRecord>(trimmed) {
                 Ok(rec) => {
-                    if rec.index != expected {
+                    if rec.index != st.len {
                         return Err(WritError::Ledger(format!(
                             "ledger {:?}: record index {} out of sequence (expected {})",
-                            self.path, rec.index, expected
+                            self.path, rec.index, st.len
                         )));
                     }
-                    if rec.prev_hash != prev {
+                    if rec.prev_hash != st.tip_hash {
                         return Err(WritError::Ledger(format!(
                             "ledger {:?}: record {} prev_hash does not match the chain tip",
                             self.path, rec.index
                         )));
                     }
-                    prev = rec.record_hash.clone();
-                    tip_record = Some(rec);
-                    expected += 1;
+                    st.offset += n;
+                    st.len += 1;
+                    st.tip_hash = rec.record_hash.clone();
+                    st.tip_record = Some(rec);
                 }
                 Err(e) => {
-                    // Only acceptable as a torn final write: nothing but
-                    // whitespace may follow this line.
-                    let mut rest = String::new();
-                    reader.read_to_string(&mut rest)?;
-                    if rest.trim().is_empty() {
-                        torn_at = Some(line_start);
-                        break; // crash-tolerant tail: stop at last valid record
+                    // Only acceptable as the final (torn) line: nothing but
+                    // whitespace may follow it.
+                    let mut rest = Vec::new();
+                    reader.read_to_end(&mut rest)?;
+                    if trim_ascii(&rest).is_empty() {
+                        return Ok(true);
                     }
                     return Err(WritError::Ledger(format!(
                         "ledger {:?}: corrupt record at index {} (mid-file corruption): {}",
-                        self.path, expected, e
+                        self.path, st.len, e
                     )));
                 }
             }
         }
-        self.len = expected;
-        self.tip_hash = prev;
-        self.tip_record = tip_record;
-        Ok(torn_at)
+    }
+
+    /// With the lock held and state refreshed: drop any bytes past the last
+    /// record (crash debris or blank lines — never a record, since
+    /// `refresh` consumed every parseable one) and make sure the file ends
+    /// in a newline. Returns the file length afterwards.
+    fn repair_tail(&self) -> Result<u64> {
+        let offset = self.state.borrow().offset;
+        let mut file = OpenOptions::new().read(true).write(true).open(&self.path)?;
+        if file.metadata()?.len() > offset {
+            file.set_len(offset)?;
+        }
+        let mut end = offset;
+        if offset > 0 {
+            let mut last = [0u8; 1];
+            file.seek(SeekFrom::Start(offset - 1))?;
+            file.read_exact(&mut last)?;
+            if last[0] != b'\n' {
+                // A final record written without its newline: complete it
+                // so the next line starts on its own.
+                file.seek(SeekFrom::Start(offset))?;
+                file.write_all(b"\n")?;
+                end += 1;
+            }
+        }
+        file.sync_data()?;
+        self.state.borrow_mut().offset = end;
+        Ok(end)
+    }
+}
+
+fn trim_ascii(b: &[u8]) -> &[u8] {
+    let start = b.iter().position(|c| !c.is_ascii_whitespace());
+    match start {
+        None => &[],
+        Some(s) => {
+            let end = b
+                .iter()
+                .rposition(|c| !c.is_ascii_whitespace())
+                .unwrap_or(s);
+            &b[s..=end]
+        }
     }
 }
 
 impl LedgerStore for FileLedgerStore {
     fn append(&mut self, record: &LedgerRecord) -> Result<()> {
-        if record.index != self.len {
-            return Err(WritError::Ledger(format!(
-                "append rejected: record index {} but ledger length is {} \
-                 (records are append-only and sequential)",
-                record.index, self.len
-            )));
-        }
-        if record.prev_hash != self.tip_hash {
-            return Err(WritError::Ledger(format!(
-                "append rejected: record {} prev_hash does not match the ledger tip",
-                record.index
-            )));
-        }
+        // Content check needs no lock: a record whose hash is not its own
+        // would verify as broken the moment it landed.
         if record.compute_hash()? != record.record_hash {
             return Err(WritError::Ledger(format!(
                 "append rejected: record {} record_hash does not match its contents",
@@ -154,51 +286,156 @@ impl LedgerStore for FileLedgerStore {
         }
         let mut line = serde_json::to_string(record)?;
         line.push('\n');
+
+        let _guard = self.lock()?;
+        // The tip on disk, not this handle's memory: other processes may
+        // have appended since we last looked.
+        self.refresh()?;
+        let (len, tip_hash) = {
+            let st = self.state.borrow();
+            (st.len, st.tip_hash.clone())
+        };
+        if record.index != len {
+            return Err(WritError::Ledger(format!(
+                "append rejected: record index {} but ledger length is {} \
+                 (records are append-only and sequential)",
+                record.index, len
+            )));
+        }
+        if record.prev_hash != tip_hash {
+            return Err(WritError::Ledger(format!(
+                "append rejected: record {} prev_hash does not match the ledger tip",
+                record.index
+            )));
+        }
+        let end = self.repair_tail()?;
         let mut file = OpenOptions::new().append(true).open(&self.path)?;
         file.write_all(line.as_bytes())?;
         file.flush()?;
         // Durability before Ok: the record must survive a power loss.
         file.sync_data()?;
-        self.tip_hash = record.record_hash.clone();
-        self.tip_record = Some(record.clone());
-        self.len += 1;
+        let mut st = self.state.borrow_mut();
+        st.offset = end + line.len() as u64;
+        st.len += 1;
+        st.tip_hash = record.record_hash.clone();
+        st.tip_record = Some(record.clone());
         Ok(())
     }
 
     fn tip(&self) -> Result<Option<LedgerRecord>> {
-        Ok(self.tip_record.clone())
+        self.refresh()?;
+        Ok(self.state.borrow().tip_record.clone())
     }
 
     fn get(&self, index: u64) -> Result<Option<LedgerRecord>> {
-        if index >= self.len {
-            return Ok(None);
-        }
-        for (i, item) in record_iter(File::open(&self.path)?).enumerate() {
-            if i as u64 == index {
-                return item.map(Some);
+        for item in committed_iter(File::open(&self.path)?) {
+            let rec = item?;
+            if rec.index == index {
+                return Ok(Some(rec));
+            }
+            if rec.index > index {
+                break;
             }
         }
         Ok(None)
     }
 
+    /// Records on disk now (including other writers' appends). Falls back
+    /// to the last observed length only if the file cannot be read; `append`
+    /// re-checks under the lock.
     fn len(&self) -> u64 {
-        self.len
+        let _ = self.refresh();
+        self.state.borrow().len
     }
 
     fn iter(&self) -> Box<dyn Iterator<Item = Result<LedgerRecord>> + '_> {
         match File::open(&self.path) {
-            Ok(f) => Box::new(record_iter(f)),
+            Ok(f) => Box::new(committed_iter(f)),
             Err(e) => Box::new(std::iter::once(Err(WritError::Io(e)))),
         }
     }
 }
 
 /// Lazy line-by-line parse; never loads the whole file into memory.
-/// Blank lines are skipped; each non-blank line is one record.
+/// Blank lines are skipped; each non-blank line is one record. Used by
+/// `verify`, which must report every unparseable line.
 pub(crate) fn record_iter(file: File) -> impl Iterator<Item = Result<LedgerRecord>> {
     BufReader::new(file).lines().filter_map(|line| match line {
         Err(e) => Some(Err(WritError::Io(e))),
         Ok(s) if s.trim().is_empty() => None,
         Ok(s) => Some(serde_json::from_str(&s).map_err(WritError::from)),
     })
+}
+
+/// The store's view: like [`record_iter`], but an unparseable line followed
+/// by nothing but whitespace is a write in progress (or a torn tail), not a
+/// record, and ends the stream silently.
+fn committed_iter(file: File) -> impl Iterator<Item = Result<LedgerRecord>> {
+    let mut reader = BufReader::new(file);
+    let mut done = false;
+    std::iter::from_fn(move || {
+        let mut line = Vec::new();
+        loop {
+            if done {
+                return None;
+            }
+            line.clear();
+            match reader.read_until(b'\n', &mut line) {
+                Err(e) => {
+                    done = true;
+                    return Some(Err(WritError::Io(e)));
+                }
+                Ok(0) => return None,
+                Ok(_) => {}
+            }
+            let trimmed = trim_ascii(&line);
+            if trimmed.is_empty() {
+                continue;
+            }
+            match serde_json::from_slice::<LedgerRecord>(trimmed) {
+                Ok(rec) => return Some(Ok(rec)),
+                Err(e) => {
+                    done = true;
+                    let mut rest = Vec::new();
+                    return match reader.read_to_end(&mut rest) {
+                        Ok(_) if trim_ascii(&rest).is_empty() => None,
+                        Ok(_) => Some(Err(WritError::from(e))),
+                        Err(io) => Some(Err(WritError::Io(io))),
+                    };
+                }
+            }
+        }
+    })
+}
+
+/// Whether `e` is a pre-write append rejection caused by another writer
+/// moving the tip (wrong `index` / `prev_hash`). Such a record never reached
+/// the ledger, so rebuilding it on the new tip and appending again is safe.
+/// Both stores word these rejections identically.
+pub fn is_append_race(e: &WritError) -> bool {
+    match e {
+        WritError::Ledger(m) => {
+            m.starts_with("append rejected")
+                && (m.contains("but ledger length is")
+                    || m.contains("prev_hash does not match the ledger tip"))
+        }
+        _ => false,
+    }
+}
+
+/// Run `f` (typically one `LedgerWriter::record_*` call, which rebuilds its
+/// record on the current tip) until it succeeds, fails with anything other
+/// than [`is_append_race`], or [`APPEND_RETRIES`] races were lost.
+pub fn retry_append<T>(mut f: impl FnMut() -> Result<T>) -> Result<T> {
+    let mut attempt = 0u32;
+    loop {
+        match f() {
+            Err(e) if is_append_race(&e) && attempt < APPEND_RETRIES => {
+                attempt += 1;
+                // Small, growing backoff so a burst of writers spreads out.
+                std::thread::sleep(Duration::from_millis(u64::from(attempt.min(20))));
+            }
+            other => return other,
+        }
+    }
 }
