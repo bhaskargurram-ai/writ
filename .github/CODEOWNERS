@@ -9,3 +9,10 @@
 /crates/writ-sandbox*/ @bhaskargurram-ai
 /docs/THREAT_MODEL.md  @bhaskargurram-ai
 /docs/SECURITY.md      @bhaskargurram-ai
+
+# Areas a team can review (either the owner or the team approves).
+/adapters/        @bhaskargurram-ai @writ-agent/integrations
+/crates/writ-mcp/ @bhaskargurram-ai @writ-agent/integrations
+/docs/            @bhaskargurram-ai @writ-agent/docs
+/site/            @bhaskargurram-ai @writ-agent/docs
+/examples/        @bhaskargurram-ai @writ-agent/docs
