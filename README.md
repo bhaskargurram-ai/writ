@@ -15,6 +15,10 @@ Your agent asks. Your policy decides. The ledger remembers.
 
 <img src="docs/assets/demo-gate.svg" alt="writ run -- claude: a session where two calls are allowed, one is redacted, one waits for a human and is denied, and one egress call is refused with its rule and reason" width="900">
 
+**See it block an injected agent.** A poisoned README tells the agent to read an SSH key, send it to `attacker.example` and `rm -rf` a directory; writ denies all three and the ledger proves it. Reproduce it offline: [examples/attack-demo](examples/attack-demo/) (scripted tool calls, real writ output).
+
+<img src="docs/assets/demo-attack.svg" alt="writ attack demo: the agent reads a README with a prompt injection; writ allows the read, then denies reading ~/.ssh/id_rsa (never-read-secrets), a WebFetch to attacker.example (egress-allowlist) and rm -rf (block-destructive-shell); writ log shows 3 denied, writ verify reports the chain intact, and after one record is edited verify reports the chain broken at record 4" width="900">
+
 </div>
 
 A writ is authority to act, and the written record that it was authorized. That is
@@ -58,10 +62,14 @@ is missing or errors, the tool does not run.
 | Agent | How | Per tool call |
 |---|---|---|
 | **Claude Code** | `writ integrate claude-code` (writes hooks into `.claude/settings.json`), or just `writ run -- claude` | yes — a writ `ask` becomes Claude Code's own permission prompt |
+| **OpenAI Codex CLI** | `writ integrate codex` (`.codex/config.toml`), or `writ run -- codex` | yes |
+| **Gemini CLI** | `writ integrate gemini` (`.gemini/settings.json`), or `writ run -- gemini` | yes — a writ `ask` becomes Gemini's confirmation |
+| **Cursor** | `writ integrate cursor` (`.cursor/hooks.json`), or `writ run -- agent` | yes (MCP asks use Cursor's prompt) |
+| **Windsurf** | `writ integrate windsurf` (`.devin/hooks.json`) | yes (asks are denied) |
 | **LangGraph** | `writ_sdk.langgraph.writ_tool_node(tools, writ)` | yes |
 | **OpenAI Agents SDK** | `writ_sdk.openai_agents.guard_agent(agent, writ)` | yes |
 | **Claude Agent SDK** (Python / TypeScript) | `writ_sdk.claude_agent_sdk.writ_hooks(writ)` / `createWritIntegration({ client })` | yes |
-| **Any MCP client** | `writ proxy --mcp --server <name> -- <server cmd>` | every MCP tool call |
+| **Any MCP client** | `writ proxy --mcp --server <name> -- <server cmd>` (stdio), or `--transport http --upstream <url>` for remote servers | every MCP tool call |
 | **Any other agent** | `writ run -- <agent>`: kernel-confined launch; or call `writ check` from its hook system | launch, plus hooks where the agent has them |
 
 ```bash
@@ -78,7 +86,31 @@ npm install @writ-agent/sdk
 Both SDKs bring the prebuilt `writ` binary with them (`writ-cli` on PyPI,
 `@writ-agent/cli` on npm) — nothing else to install.
 
-Package docs: [Python](adapters/python/README.md) · [TypeScript](adapters/typescript/README.md).
+Package docs: [Python](adapters/python/README.md) · [TypeScript](adapters/typescript/README.md) ·
+per-agent notes and residual risks: [docs/integrations/](docs/integrations/).
+
+## The console: `writ ui`
+
+```bash
+writ ui          # opens http://127.0.0.1:<port> in your browser
+```
+
+A local web console for the policy file and ledger in front of you: connect
+an agent (snippets filled in with your paths, and a live "connected" signal
+from the ledger), watch every decision as it is recorded, approve or deny
+`ask` calls (`writ check --ask ui`), edit and test the policy, and run
+commands in the kernel sandbox to watch an escape attempt fail with the exact
+OS error. Loopback only, token-gated, no external requests. See
+[docs/ui.md](docs/ui.md).
+
+<p align="center">
+  <img src="docs/assets/ui/connect.png" alt="writ ui: Connect your agent — snippets for Claude Code and Python with a live 'connected' indicator" width="49%">
+  <img src="docs/assets/ui/sandbox.png" alt="writ ui: Sandbox — a write outside the workspace blocked by the kernel boundary, 'Access is denied.'" width="49%">
+</p>
+
+No install needed to try the policy language itself: the
+[playground](https://writ-omega.vercel.app/playground.html) runs the real
+engine in your browser.
 
 ## The policy that produced that session
 
@@ -176,10 +208,16 @@ Writ governs **actions**, not reasoning.
 
 - **It does not stop prompt injection.** It shrinks the blast radius: least
   privilege, egress allow-lists, and a human gate on irreversible calls.
-- **The ledger is tamper-evident, not tamper-proof.** Local verification catches
-  edited records and broken links; anyone with write access can still delete the
-  whole unanchored file. Transparency-log anchoring is on the roadmap and is the
-  only thing that closes that gap.
+- **The ledger is tamper-evident, not tamper-proof; receipts make a rewrite
+  detectable, not impossible.** `writ verify` catches edited records and broken
+  links, but anyone with write access can rewrite the file and recompute the
+  chain. A signed receipt (`writ receipt create`) pins every record up to a
+  checkpoint, so a later edit, rewrite or truncation of those records fails
+  `writ receipt verify` for anyone holding the receipt and your public key;
+  anchoring it in the Sigstore Rekor public log (`writ receipt anchor --to rekor`)
+  adds an independent timestamp. Records after the latest receipt are still only
+  tamper-evident, and a stolen signing key or a host compromised before signing
+  defeats receipts. See [docs/receipts.md](docs/receipts.md).
 - **MCP-proxy-only mode is partial coverage.** The agent's own shell, file writes
   and direct HTTP go around it. Pair mode A with process wrap or SDK hooks, and
   run `writ doctor`, which says this out loud rather than scoring itself.
@@ -192,11 +230,11 @@ Full residual-risk table: [docs/THREAT_MODEL.md](docs/THREAT_MODEL.md).
 
 | Layer | Today | Next |
 |---|---|---|
-| Agents | Claude Code (hooks), LangGraph, OpenAI Agents SDK, Claude Agent SDK (Python + TypeScript), any MCP client, any process via `run` | Codex, Gemini CLI, Cursor hooks |
-| Interception | hook gateway (`writ check`), MCP stdio proxy, process wrap | SSE + streamable HTTP |
+| Agents | Claude Code, Codex CLI, Gemini CLI, Cursor, Windsurf (hooks); LangGraph, OpenAI Agents SDK, Claude Agent SDK (Python + TypeScript); any MCP client; any process via `run` | more agent hook protocols as they are published |
+| Interception | hook gateway (`writ check`), MCP proxy (stdio, Streamable HTTP / SSE), process wrap | — |
 | Policy engines | native DSL, Rego, Cedar — one verdict IR, one fixture corpus | — |
 | Sandbox backends | local-os with a kernel boundary (Landlock + seccomp · AppContainer + Job Object · Seatbelt), docker | microsandbox, e2b/firecracker, k8s |
-| Ledger stores | JSONL (every platform), SQLite WAL (`sqlite` feature) | Postgres + object store, signed receipts |
+| Ledger stores | JSONL (every platform), SQLite WAL (`sqlite` feature), Postgres (`postgres` feature); signed receipts with Rekor anchoring | object-store export |
 | Platforms | macOS, Linux, Windows — CI builds all three | six release targets |
 
 ## Compared to the neighbours, fairly
@@ -227,7 +265,8 @@ frozen record schema.
 | 2 | Kernel sandbox (Landlock/seccomp · AppContainer · Seatbelt), docker backend, SQLite ledger, benchmarks | done — confining `writ run` itself is open |
 | 3 | Rego + Cedar | done |
 | 3 | SDK hooks and the hook gateway | done |
-| 3 | Postgres ledger, anchored receipts, Helm/SSO/RBAC/SIEM | in progress |
+| 3 | Postgres ledger, signed + anchored receipts, console (`writ ui`), Codex / Gemini / Cursor / Windsurf hooks, MCP over HTTP | done |
+| 3 | Helm / SSO / RBAC / SIEM | not started |
 | 4 | Fuzzing (running weekly), e2e matrix, published benchmarks, 1.0 | in progress |
 
 `writ doctor` is the authority on what your build actually enforces. The plan and
@@ -240,17 +279,19 @@ its honest wave status live in
 |---|---|
 | `crates/writ-core` | Frozen contracts: call, verdict IR, ledger record, sandbox, approver, pipeline |
 | `crates/writ-policy`, `-rego`, `-cedar` | The three policy engines behind one `PolicyEngine` trait |
-| `crates/writ-ledger` | Hash chain, JSONL and SQLite stores, `verify` |
+| `crates/writ-ledger` | Hash chain, JSONL / SQLite / Postgres stores, `verify` |
+| `crates/writ-receipts` | Signed receipts, Merkle inclusion proofs, Rekor and file anchors |
 | `crates/writ-sandbox`, `-docker` | `local-os` kernel boundary and the docker backend |
 | `crates/writ-mcp` | MCP stdio proxy |
-| `crates/writ-cli`, `writ-tui` | The `writ` binary and its approval gate |
+| `crates/writ-cli`, `writ-tui` | The `writ` binary, its approval gate, and the `writ ui` console |
+| `crates/writ-wasm` | The engine compiled to WebAssembly for the playground |
 | `crates/writ-replay`, `writ-otel` | Trajectory replay and OpenTelemetry spans |
 | `crates/writ-bench`, `fuzz/` | Criterion benches and cargo-fuzz targets (standalone crates) |
 | `packs/`, `examples/` | Policy packs and example `writ.yaml` files |
 | `adapters/python`, `adapters/typescript` | `writ-sdk` (Python) and `@writ-agent/sdk` (TypeScript) integration packages |
 | `deploy/` | GitHub Action, Helm chart, air-gap and Terraform notes |
 | `docs/` | Policy reference, interfaces, threat model, ADRs — [index](docs/README.md) |
-| `site/` | The landing page |
+| `site/` | The landing page and the playground |
 
 ## Contributing
 

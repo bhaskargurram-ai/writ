@@ -1,0 +1,1 @@
+{"hook_event_name":"PreToolUse","session_id":"attack-demo","tool_use_id":"toolu_01","tool_name":"Read","tool_input":{"file_path":"fixture-repo/README.md"}}
