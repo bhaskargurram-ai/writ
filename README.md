@@ -11,7 +11,7 @@ Your agent asks. Your policy decides. The ledger remembers.
 [![PyPI](https://img.shields.io/pypi/v/writ-sdk?label=pypi%20writ-sdk&color=4ec9a5)](https://pypi.org/project/writ-sdk/)
 [![npm](https://img.shields.io/npm/v/@writ-agent/sdk?label=npm%20%40writ-agent%2Fsdk&color=4ec9a5)](https://www.npmjs.com/package/@writ-agent/sdk)
 
-[Website](https://writ-omega.vercel.app) · [Docs](docs/README.md) · [Threat model](docs/THREAT_MODEL.md) · [Changelog](CHANGELOG.md)
+[Website](https://writ-omega.vercel.app) · [**Playground**](https://writ-omega.vercel.app/playground.html) · [Docs](docs/README.md) · [Threat model](docs/THREAT_MODEL.md) · [Changelog](CHANGELOG.md)
 
 <img src="docs/assets/demo-gate.svg" alt="writ run -- claude: a session where two calls are allowed, one is redacted, one waits for a human and is denied, and one egress call is refused with its rule and reason" width="900">
 
