@@ -1,0 +1,219 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>writ playground — try your policy on your agent's calls</title>
+<meta name="description" content="The writ policy engine and ledger, compiled to WebAssembly and running in your browser. Bring your own writ.yaml, try your agent's tool calls, tamper with the ledger and watch verify catch it.">
+<link rel="icon" href="assets/icon.svg" type="image/svg+xml">
+<link rel="icon" href="assets/icon-32.png" sizes="32x32" type="image/png">
+<link rel="apple-touch-icon" href="assets/icon-180.png">
+<meta name="theme-color" content="#0b0f14">
+<meta property="og:title" content="writ playground — try your policy on your agent's calls">
+<meta property="og:description" content="The real writ engine in your browser: policy editor, agent call simulator, hash-chained ledger, policy replay. No install.">
+<meta property="og:image" content="https://writ-omega.vercel.app/assets/social-preview.png">
+<meta property="og:url" content="https://writ-omega.vercel.app/playground.html">
+<meta name="twitter:card" content="summary_large_image">
+<link rel="stylesheet" href="assets/playground/playground.css">
+<link rel="modulepreload" href="assets/playground/writ_wasm.js">
+<link rel="preload" href="assets/playground/writ_wasm_bg.wasm" as="fetch" type="application/wasm" crossorigin>
+</head>
+<body>
+<a class="skip" href="#policy-panel">Skip to the playground</a>
+
+<nav>
+  <div class="wrap">
+    <a class="logo" href="./"><img src="assets/wordmark-light.svg" alt="writ home" width="61" height="26"></a>
+    <div class="links">
+      <a href="./#policy">Policy</a>
+      <a href="./#ledger">Ledger</a>
+      <a href="./#commands">Commands</a>
+      <a href="playground.html" aria-current="page">Playground</a>
+      <a href="https://github.com/writ-agent/writ">GitHub</a>
+    </div>
+  </div>
+</nav>
+
+<header class="pg-hero">
+  <div class="wrap">
+    <div class="kicker">Playground</div>
+    <h1>Bring your own policy.<br>Try your agent's calls.</h1>
+    <p class="sub">This is the real writ engine, compiled to WebAssembly and running in this tab: the same parser, the same four verdicts, the same ledger records and hashes as the <code>writ</code> binary. Nothing you type leaves your browser.</p>
+    <p class="engine" id="engine-status" role="status"><span class="dot" aria-hidden="true"></span><span>loading the engine…</span></p>
+  </div>
+</header>
+
+<main class="wrap pg">
+  <div class="pg-grid">
+    <!-- 1. Policy -------------------------------------------------------- -->
+    <section class="panel" id="policy-panel" aria-labelledby="policy-h">
+      <div class="panel-head">
+        <h2 id="policy-h"><span class="n">1</span> writ.yaml</h2>
+        <div class="head-tools">
+          <label class="sr" for="policy-preset">Policy preset</label>
+          <select id="policy-preset"></select>
+        </div>
+      </div>
+      <div class="editor" id="editor">
+        <div class="ed-gutter" id="ed-gutter" aria-hidden="true"></div>
+        <div class="ed-body">
+          <pre class="ed-hl" id="ed-hl" aria-hidden="true"></pre>
+          <textarea id="ed-src" spellcheck="false" autocapitalize="off" autocomplete="off" wrap="off"
+            aria-label="Policy source (writ.yaml). Tab indents; press Escape, then Tab, to leave the editor."
+            aria-describedby="compile-status"></textarea>
+        </div>
+      </div>
+      <div class="compile" id="compile-status" role="status" aria-live="polite"></div>
+      <div class="rules" id="rule-list" aria-label="Compiled rules, in evaluation order"></div>
+      <div class="panel-foot">
+        <span class="hint">First match wins · unmatched calls get <code>default</code> · <a href="https://github.com/writ-agent/writ/blob/main/docs/policy-reference.md">policy reference</a></span>
+        <button type="button" class="btn ghost" id="policy-download">Download writ.yaml</button>
+      </div>
+    </section>
+
+    <!-- 2. Agent call ---------------------------------------------------- -->
+    <section class="panel" id="sim-panel" aria-labelledby="sim-h">
+      <div class="panel-head">
+        <h2 id="sim-h"><span class="n">2</span> Agent call</h2>
+        <div class="head-tools">
+          <label class="sr" for="call-preset">Call preset</label>
+          <select id="call-preset"></select>
+        </div>
+      </div>
+      <form id="call-form" class="call-form" autocomplete="off">
+        <div class="row3">
+          <label>Agent
+            <select id="f-agent">
+              <option value="claude-code">Claude Code (hook)</option>
+              <option value="mcp">MCP client (proxy)</option>
+              <option value="langgraph">LangGraph (SDK)</option>
+              <option value="openai-agents">OpenAI Agents (SDK)</option>
+            </select>
+          </label>
+          <label>Tool, as the agent names it
+            <input id="f-tool" type="text" spellcheck="false" required>
+          </label>
+          <label>MCP server
+            <input id="f-server" type="text" spellcheck="false" placeholder="none">
+          </label>
+        </div>
+        <div class="row-args">
+          <label for="f-args">Arguments (JSON)</label>
+          <textarea id="f-args" class="mono" rows="5" spellcheck="false" aria-describedby="args-err"></textarea>
+          <p class="field-err" id="args-err" role="alert"></p>
+        </div>
+        <details class="more">
+          <summary>Scanner trust and sample tool result</summary>
+          <div class="row2">
+            <label><span>Server trust (<code>server.trust</code>)</span>
+              <select id="f-trust">
+                <option value="">no verdict</option>
+                <option value="verified">verified</option>
+                <option value="unverified">unverified</option>
+                <option value="malicious">malicious</option>
+              </select>
+            </label>
+            <label><span>Tool result (masked on <code>redact</code>; hashed into the execution record)</span>
+              <textarea id="f-output" class="mono" rows="3" spellcheck="false"></textarea>
+            </label>
+          </div>
+        </details>
+        <div class="run-row">
+          <button type="submit" class="btn primary" id="run-btn" disabled>Run through writ</button>
+          <span class="hint"><kbd>Ctrl</kbd> + <kbd>Enter</kbd> runs from anywhere</span>
+        </div>
+      </form>
+      <div id="verdict" class="verdict-area" aria-live="polite">
+        <p class="placeholder">Pick a call and press <b>Run</b>. writ normalises it the way that agent's integration does, evaluates it against the policy on the left, and records the decision.</p>
+      </div>
+    </section>
+  </div>
+
+  <!-- 3. Ledger ------------------------------------------------------------ -->
+  <section class="panel" id="ledger-panel" aria-labelledby="ledger-h">
+    <div class="panel-head">
+      <h2 id="ledger-h"><span class="n">3</span> Ledger</h2>
+      <p class="head-note">Every decision is appended to a hash chain: the same <code>LedgerRecord</code> v1 format and SHA-256 hashing as <code>.writ/ledger.jsonl</code>. Edit a record and <code>writ verify</code> names the index where the chain broke.</p>
+    </div>
+    <div class="ledger-tools">
+      <button type="button" class="btn primary" id="verify-btn">writ verify</button>
+      <div class="tamper">
+        <label class="sr" for="tamper-mode">Tamper mode</label>
+        <select id="tamper-mode">
+          <option value="edit">Edit the record</option>
+          <option value="edit-rehash">Edit it and recompute its hash</option>
+          <option value="delete">Delete the record</option>
+        </select>
+        <button type="button" class="btn danger" id="tamper-btn" disabled>Tamper with #<span id="tamper-idx">–</span></button>
+      </div>
+      <span class="spacer"></span>
+      <button type="button" class="btn ghost" id="ledger-download" disabled>Download ledger.jsonl</button>
+      <button type="button" class="btn ghost" id="ledger-reset" disabled>Clear</button>
+    </div>
+    <div class="term" id="verify-out" role="status" aria-live="polite"><span class="prompt">$</span> writ verify <span class="dim">— run a few calls first</span></div>
+    <div class="chain-wrap">
+      <ol class="chain" id="chain" aria-label="Ledger records, oldest first"></ol>
+    </div>
+    <div class="record-detail" id="record-detail" hidden>
+      <div class="rd-head"><span id="rd-title"></span><span class="dim" id="rd-note"></span></div>
+      <pre id="rd-json" tabindex="0" aria-label="Selected record JSON"></pre>
+    </div>
+  </section>
+
+  <!-- 4. Replay ------------------------------------------------------------ -->
+  <section class="panel" id="replay-panel" aria-labelledby="replay-h">
+    <div class="panel-head">
+      <h2 id="replay-h"><span class="n">4</span> Policy replay</h2>
+      <p class="head-note">Before you ship a policy change, run it over recorded sessions: <code>writ replay &lt;session&gt; --candidate &lt;file&gt;</code>. Which calls that went through would the new policy have stopped?</p>
+    </div>
+    <div class="replay-form">
+      <label>Recorded session
+        <select id="rp-source"></select>
+      </label>
+      <label>Candidate policy
+        <select id="rp-candidate"></select>
+      </label>
+      <button type="button" class="btn primary" id="rp-run" disabled>Replay</button>
+    </div>
+    <div class="paste" id="rp-paste" hidden>
+      <label for="rp-jsonl"><span>Paste a <code>ledger.jsonl</code> (one record per line; nothing is uploaded)</span></label>
+      <textarea id="rp-jsonl" class="mono" rows="5" spellcheck="false"></textarea>
+      <label>Session
+        <select id="rp-session"></select>
+      </label>
+    </div>
+    <div id="rp-out" aria-live="polite"></div>
+  </section>
+
+  <!-- 5. For real ---------------------------------------------------------- -->
+  <section class="real" id="real" aria-labelledby="real-h">
+    <div class="kicker">Now run it for real</div>
+    <h2 id="real-h">Same engine, your agent, your repo</h2>
+    <p class="lead">Both packages ship the <code>writ</code> binary. Drop your policy next to your code as <code>writ.yaml</code> and every tool call goes through it, with the ledger in <code>.writ/ledger.jsonl</code>.</p>
+    <div class="real-grid">
+      <div class="cmd-card"><span class="n">Python</span><div class="cmd"><code>pip install writ-sdk</code><button type="button" class="copy" data-copy="pip install writ-sdk" aria-label="Copy pip install writ-sdk">copy</button></div><p>LangGraph, OpenAI Agents SDK and Claude Agent SDK adapters.</p></div>
+      <div class="cmd-card"><span class="n">TypeScript</span><div class="cmd"><code>npm install @writ-agent/sdk</code><button type="button" class="copy" data-copy="npm install @writ-agent/sdk" aria-label="Copy npm install @writ-agent/sdk">copy</button></div><p>Claude Agent SDK and any Node agent with a tool hook.</p></div>
+      <div class="cmd-card"><span class="n">Claude Code</span><div class="cmd"><code>writ integrate claude-code</code><button type="button" class="copy" data-copy="writ integrate claude-code" aria-label="Copy writ integrate claude-code">copy</button></div><p>Writes the hooks into <code>.claude/settings.json</code>; a writ <code>ask</code> becomes Claude Code's own prompt.</p></div>
+      <div class="cmd-card"><span class="n">Watch it</span><div class="cmd"><code>writ ui</code><button type="button" class="copy" data-copy="writ ui" aria-label="Copy writ ui">copy</button></div><p>Local console: live decisions, approvals, the ledger and <code>writ verify</code>.</p></div>
+    </div>
+    <p class="fine">The ledger you built above downloads as a real <code>ledger.jsonl</code>: <code>writ verify --ledger ledger.jsonl</code> checks it with the same result.</p>
+  </section>
+</main>
+
+<footer>
+  <div class="wrap">
+    <div class="cols">
+      <a class="logo" href="./"><img src="assets/wordmark-light.svg" alt="writ home" width="47" height="20" style="height:20px"></a>
+      <a href="https://github.com/writ-agent/writ">GitHub</a>
+      <a href="https://github.com/writ-agent/writ/blob/main/docs/THREAT_MODEL.md">Threat model</a>
+      <a href="https://github.com/writ-agent/writ/blob/main/docs/policy-reference.md">Policy reference</a>
+      <a href="https://github.com/writ-agent/writ/tree/main/crates/writ-wasm">How the playground is built</a>
+    </div>
+    <p class="fine">The ledger is tamper-evident, not tamper-proof: an edit is caught, and a rewrite of the newest record together with its hash needs anchoring, which is on the roadmap. <span id="engine-version"></span></p>
+  </div>
+</footer>
+
+<noscript><p class="noscript">The playground runs the writ engine as WebAssembly and needs JavaScript.</p></noscript>
+<script type="module" src="assets/playground/playground.js"></script>
+</body>
+</html>

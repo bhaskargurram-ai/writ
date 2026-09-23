@@ -112,6 +112,24 @@ jobs:
           python-version: '3.12'
       - run: python3 scripts/check_versions.py
 
+  playground:
+    name: playground wasm is current
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: dtolnay/rust-toolchain@master
+        with:
+          toolchain: '1.98.1'
+          targets: wasm32-unknown-unknown
+      - uses: Swatinem/rust-cache@v2
+      - run: cargo install wasm-bindgen-cli --version 0.2.128 --locked
+      - run: PLAYGROUND_TOOLCHAIN=1.98.1 bash scripts/build_playground.sh --check
+      - run: git diff --exit-code -- site/assets/playground/
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - run: node --test crates/writ-wasm/tests/playground.test.mjs
+
   claim-discipline:
     runs-on: ubuntu-latest
     steps:
