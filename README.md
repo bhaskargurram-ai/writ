@@ -26,10 +26,21 @@ answer for what those agents did.
 
 ## Install
 
+Prebuilt, signed binaries for Linux (x64, arm64, static), macOS (Apple
+silicon, Intel) and Windows (x64). Pick one:
+
 ```bash
-cargo install --path crates/writ-cli      # prebuilt binaries, brew, npx and curl|sh
-                                          # land with the release pipeline
-cp examples/writ.yaml writ.yaml
+pip install writ-cli                 # Python users
+npm install -g @writ-agent/cli       # Node users
+curl -fsSL https://raw.githubusercontent.com/writ-agent/writ/main/scripts/install.sh | sh
+```
+
+or download `writ-<target>` from the
+[latest release](https://github.com/writ-agent/writ/releases/latest)
+(checksums, Sigstore bundles and build provenance attached). Then:
+
+```bash
+curl -fsSLO https://raw.githubusercontent.com/writ-agent/writ/main/examples/writ.yaml
 writ run -- claude
 ```
 
@@ -64,8 +75,8 @@ pip install "writ-sdk[langgraph]"
 npm install @writ-agent/sdk
 ```
 
-Both packages drive the `writ` binary. Until prebuilt releases ship:
-`cargo install --git https://github.com/writ-agent/writ writ-cli`.
+Both SDKs bring the prebuilt `writ` binary with them (`writ-cli` on PyPI,
+`@writ-agent/cli` on npm) — nothing else to install.
 
 Package docs: [Python](adapters/python/README.md) · [TypeScript](adapters/typescript/README.md).
 

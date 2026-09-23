@@ -11,9 +11,9 @@ integrations import their framework only when you import them.
 
 ## Install
 
-> **You also need the `writ` binary.** Until prebuilt releases ship, install it
-> from source: `cargo install --git https://github.com/writ-agent/writ writ-cli`
-> (Rust stable), then check with `writ --version`.
+> The `writ` binary comes with it: `writ-sdk` depends on
+> [`writ-cli`](https://pypi.org/project/writ-cli/), whose platform wheels carry
+> the prebuilt binary. No Rust toolchain or repository checkout is needed.
 
 ```bash
 pip install writ-sdk                     # core: WritClient, Writ, @writ_tool

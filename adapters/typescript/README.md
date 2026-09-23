@@ -16,9 +16,10 @@ This package talks to writ over its gateway protocol (`writ check --stdio`,
 
 ## Install
 
-> **You also need the `writ` binary.** Until prebuilt releases ship, install it
-> from source: `cargo install --git https://github.com/writ-agent/writ writ-cli`
-> (Rust stable), then check with `writ --version`.
+> The `writ` binary comes with it: `@writ-agent/sdk` pulls in
+> [`@writ-agent/cli`](https://www.npmjs.com/package/@writ-agent/cli), and npm
+> installs only the prebuilt binary for your platform. No Rust toolchain or
+> repository checkout is needed.
 
 ```sh
 npm install @writ-agent/sdk

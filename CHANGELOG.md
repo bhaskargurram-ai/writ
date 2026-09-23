@@ -8,6 +8,27 @@ The ledger record schema is versioned separately (`schema_version`, see
 
 ## [Unreleased]
 
+## [0.1.1] — 2026-09-23
+
+### Added
+
+- **Prebuilt, signed `writ` binaries** for Linux x64/arm64 (static musl),
+  macOS arm64/x86_64 and Windows x64 on every release, with checksums,
+  Sigstore bundles, SBOMs and build provenance.
+- **`writ-cli` on PyPI** (platform wheels carrying the binary) and
+  **`@writ-agent/cli` on npm** (per-platform packages; npm installs only the
+  one for your machine). `writ-sdk` and `@writ-agent/sdk` depend on them, so
+  installing an SDK installs the binary — no repository or Rust toolchain.
+- One tag-driven release workflow publishes GitHub Releases, PyPI and npm
+  (with npm provenance); versions are kept in lockstep by
+  `scripts/check_versions.py`.
+
+## [0.1.0] — 2026-09-22
+
+First published SDKs (`writ-sdk`, `@writ-agent/sdk`); they required building
+the `writ` binary from source. Everything listed below under "Added",
+"Changed" and "Fixed" shipped on `main` by this point.
+
 Nothing has been tagged yet; everything below is on `main`.
 
 ### Added
