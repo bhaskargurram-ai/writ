@@ -15,6 +15,10 @@
 //! - `SqliteLedgerStore` (`sqlite` cargo feature): the same serialized
 //!   records, one per row, in a WAL-mode SQLite database with transactional
 //!   append. See the `sqlite` module docs for schema and concurrency.
+//! - `PostgresLedgerStore` (`postgres` cargo feature): the same serialized
+//!   records, one per row, in a Postgres table that many hosts append to;
+//!   selected by a `postgres://` / `postgresql://` URL. See the `postgres`
+//!   module docs and `docs/ledger-postgres.md`.
 //!
 //! Hashes cover the record, not the container, so both stores pass the same
 //! `writ_core::verify_chain` suite and a record moved between them verifies
@@ -28,15 +32,21 @@
 #![forbid(unsafe_code)]
 
 pub mod file_store;
+#[cfg(feature = "postgres")]
+pub mod postgres;
 pub mod query;
 #[cfg(feature = "sqlite")]
 pub mod sqlite;
 pub mod store;
 pub mod verify;
 
+#[cfg(feature = "postgres")]
+pub use crate::postgres::{verify_postgres, PostgresLedgerStore};
 pub use file_store::{is_append_race, retry_append, FileLedgerStore, APPEND_RETRIES, LOCK_TIMEOUT};
 pub use query::{find_by_call_id, find_by_call_id_in, sessions, sessions_in, SessionSummary};
 #[cfg(feature = "sqlite")]
 pub use sqlite::{verify_sqlite, SqliteLedgerStore};
-pub use store::{detect_store_kind, open_store, StoreKind};
+pub use store::{
+    detect_store_kind, display_ledger, is_postgres_url, open_store, redact_postgres_url, StoreKind,
+};
 pub use verify::{verify, verify_jsonl};

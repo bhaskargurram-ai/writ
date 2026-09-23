@@ -10,6 +10,8 @@ allow = [
     "Apache-2.0",
     "Apache-2.0 WITH LLVM-exception",
     "BSD-3-Clause",
+    "CDLA-Permissive-2.0",   # webpki-roots (Mozilla CA list)
+    "ISC",                   # ring, rustls-webpki, untrusted
     "MIT",
     "Unicode-3.0",
     "Zlib",

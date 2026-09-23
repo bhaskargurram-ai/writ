@@ -12,6 +12,12 @@
 //!
 //! Without the `sqlite` cargo feature, a SQLite ledger is reported as an
 //! error — it is never parsed as JSONL.
+//!
+//! A location whose text starts with `postgres://` or `postgresql://` is a
+//! Postgres ledger (checked before anything touches the filesystem).
+//! Without the `postgres` cargo feature it is reported as an error, never
+//! treated as a file path. Display such locations with [`display_ledger`],
+//! which redacts the password.
 
 use std::fs::File;
 use std::io::{ErrorKind, Read};
@@ -32,6 +38,78 @@ pub enum StoreKind {
     Jsonl,
     /// `SqliteLedgerStore` (WAL mode; needs the `sqlite` feature to open).
     Sqlite,
+    /// `PostgresLedgerStore`: a `postgres://` / `postgresql://` URL (needs
+    /// the `postgres` feature to open).
+    Postgres,
+}
+
+/// Whether `location` is a Postgres connection URL (`postgres://` or
+/// `postgresql://`, scheme case-insensitive).
+pub fn is_postgres_url(location: &str) -> bool {
+    let scheme = |p: &str| {
+        location
+            .get(..p.len())
+            .is_some_and(|s| s.eq_ignore_ascii_case(p))
+    };
+    scheme("postgres://") || scheme("postgresql://")
+}
+
+/// The Postgres URL held by a ledger path, if it is one.
+pub(crate) fn postgres_location(path: &Path) -> Option<&str> {
+    path.to_str().filter(|s| is_postgres_url(s))
+}
+
+/// `url` with its password replaced by `***` (both the userinfo password
+/// and a `password=` query parameter). Safe to log.
+pub fn redact_postgres_url(url: &str) -> String {
+    let Some(pos) = url.find("://") else {
+        return "<postgres url>".to_string();
+    };
+    let (scheme, rest) = url.split_at(pos + 3);
+    let (before_query, query) = match rest.split_once('?') {
+        Some((b, q)) => (b, Some(q)),
+        None => (rest, None),
+    };
+    // Userinfo ends at the last '@' before the query, so a password with a
+    // raw '/' or '@' is still fully covered.
+    let authority_and_path = match before_query.rfind('@') {
+        Some(at) => {
+            let (userinfo, host) = before_query.split_at(at);
+            match userinfo.split_once(':') {
+                Some((user, _)) => format!("{user}:***{host}"),
+                None => before_query.to_string(),
+            }
+        }
+        None => before_query.to_string(),
+    };
+    let mut out = format!("{scheme}{authority_and_path}");
+    if let Some(q) = query {
+        let pairs: Vec<String> = q
+            .split('&')
+            .map(|kv| {
+                let key = kv.split('=').next().unwrap_or("");
+                if key.eq_ignore_ascii_case("password") {
+                    "password=***".to_string()
+                } else {
+                    kv.to_string()
+                }
+            })
+            .collect();
+        out.push('?');
+        out.push_str(&pairs.join("&"));
+    }
+    out
+}
+
+/// A ledger location fit for display: file paths as-is, Postgres URLs with
+/// the password redacted. Use this (never `Path::display`) when printing
+/// `--ledger`.
+pub fn display_ledger(path: impl AsRef<Path>) -> String {
+    let path = path.as_ref();
+    match postgres_location(path) {
+        Some(url) => redact_postgres_url(url),
+        None => path.display().to_string(),
+    }
 }
 
 fn kind_by_extension(path: &Path) -> StoreKind {
@@ -49,6 +127,9 @@ fn kind_by_extension(path: &Path) -> StoreKind {
 /// See the module docs for the rules.
 pub fn detect_store_kind(path: impl AsRef<Path>) -> Result<StoreKind> {
     let path = path.as_ref();
+    if postgres_location(path).is_some() {
+        return Ok(StoreKind::Postgres);
+    }
     let mut head = Vec::with_capacity(SQLITE_MAGIC.len());
     match File::open(path) {
         Ok(f) => {
@@ -80,6 +161,20 @@ pub(crate) fn sqlite_unavailable(path: &Path) -> WritError {
     ))
 }
 
+#[cfg(not(feature = "postgres"))]
+pub(crate) fn postgres_unavailable(path: &Path) -> WritError {
+    WritError::Ledger(format!(
+        "ledger {} is a Postgres ledger, but this build of writ-ledger was          compiled without the `postgres` feature",
+        display_ledger(path)
+    ))
+}
+
+/// The URL of a path already classified as [`StoreKind::Postgres`].
+#[cfg(feature = "postgres")]
+pub(crate) fn postgres_url(path: &Path) -> &str {
+    postgres_location(path).expect("classified as a Postgres URL")
+}
+
 /// Open (creating if absent) the ledger at `path` with the backend chosen
 /// by [`detect_store_kind`].
 pub fn open_store(path: impl AsRef<Path>) -> Result<Box<dyn LedgerStore>> {
@@ -90,6 +185,12 @@ pub fn open_store(path: impl AsRef<Path>) -> Result<Box<dyn LedgerStore>> {
         StoreKind::Sqlite => Ok(Box::new(crate::sqlite::SqliteLedgerStore::open(path)?)),
         #[cfg(not(feature = "sqlite"))]
         StoreKind::Sqlite => Err(sqlite_unavailable(path)),
+        #[cfg(feature = "postgres")]
+        StoreKind::Postgres => Ok(Box::new(crate::postgres::PostgresLedgerStore::open(
+            postgres_url(path),
+        )?)),
+        #[cfg(not(feature = "postgres"))]
+        StoreKind::Postgres => Err(postgres_unavailable(path)),
     }
 }
 
@@ -103,5 +204,9 @@ pub(crate) fn read_records(path: &Path) -> Result<Box<dyn Iterator<Item = Result
         StoreKind::Sqlite => Ok(Box::new(crate::sqlite::read_only_records(path)?)),
         #[cfg(not(feature = "sqlite"))]
         StoreKind::Sqlite => Err(sqlite_unavailable(path)),
+        #[cfg(feature = "postgres")]
+        StoreKind::Postgres => crate::postgres::read_only_records(postgres_url(path)),
+        #[cfg(not(feature = "postgres"))]
+        StoreKind::Postgres => Err(postgres_unavailable(path)),
     }
 }

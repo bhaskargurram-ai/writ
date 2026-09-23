@@ -60,6 +60,72 @@ impl CredentialStore {
     }
 }
 
+impl CredentialStore {
+    /// Inject this server's secrets as HTTP request headers for an upstream
+    /// (Streamable HTTP / SSE) server. Naming follows `load_from_env`:
+    ///
+    /// * `WRIT_CRED_<SERVER>_BEARER_TOKEN=tok` → `Authorization: Bearer tok`
+    /// * `WRIT_CRED_<SERVER>_HEADER_<NAME>=v` → `<Name>: v`, underscores in
+    ///   `<NAME>` becoming dashes (`HEADER_X_API_KEY` → `X-Api-Key`).
+    ///
+    /// Other keys are environment credentials for stdio servers and are not
+    /// sent over HTTP. Values containing CR/LF (header injection) and names
+    /// that are not HTTP tokens are skipped with a warning naming the key —
+    /// never the value. `set` receives the header name and the exposed value
+    /// and must write it straight into the outgoing request.
+    pub fn inject_http_headers(&self, server: &str, set: &mut dyn FnMut(&str, &str)) {
+        let Some(map) = self.secrets.get(server) else {
+            return;
+        };
+        for (key, value) in map {
+            let (name, val) = if key == "BEARER_TOKEN" {
+                (
+                    "Authorization".to_string(),
+                    format!("Bearer {}", value.expose()),
+                )
+            } else if let Some(h) = key.strip_prefix("HEADER_") {
+                (header_name_from_env(h), value.expose().to_string())
+            } else {
+                continue;
+            };
+            let name_ok = !name.is_empty()
+                && name
+                    .bytes()
+                    .all(|b| b.is_ascii_alphanumeric() || b"!#$%&'*+-.^_`|~".contains(&b));
+            let val_ok = !val.bytes().any(|b| b == b'\r' || b == b'\n' || b == 0);
+            if !name_ok || !val_ok {
+                tracing::warn!(server, key = %key, "skipping credential header: invalid name or value");
+                continue;
+            }
+            set(&name, &val);
+        }
+    }
+
+    /// Header names this server's credentials will set (for banners/logs;
+    /// contains no secret material).
+    pub fn http_header_names(&self, server: &str) -> Vec<String> {
+        let mut names = Vec::new();
+        self.inject_http_headers(server, &mut |n, _| names.push(n.to_string()));
+        names
+    }
+}
+
+/// `X_API_KEY` → `X-Api-Key`.
+fn header_name_from_env(key: &str) -> String {
+    key.split('_')
+        .filter(|p| !p.is_empty())
+        .map(|p| {
+            let lower = p.to_ascii_lowercase();
+            let mut c = lower.chars();
+            match c.next() {
+                Some(f) => f.to_ascii_uppercase().to_string() + c.as_str(),
+                None => String::new(),
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("-")
+}
+
 /// A spawned downstream MCP server: child handle + framed transport.
 pub struct StdioServer {
     pub child: Child,

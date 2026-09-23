@@ -2,14 +2,21 @@
 //! the agent, an MCP client to the real server. `tools/call` is intercepted
 //! and routed through a decision callback; everything else passes through.
 //!
-//! Wave 1 limitation (documented): downstream-initiated requests
-//! (server→agent) are not proxied; SSE/HTTP transports land in wave 2.
+//! The decision pipeline lives in [`Interceptor`], which knows nothing about
+//! framing: the stdio proxy ([`McpProxy`]) and the Streamable HTTP proxy
+//! (`crate::http`) both drive the same interceptor, so every transport gets
+//! the same decide → record → forward/refuse → observe → redact sequence.
+//!
+//! stdio limitation (documented): downstream-initiated requests
+//! (server→agent) are answered with method-not-found, not proxied.
+
+use std::ops::{Deref, DerefMut};
 
 use serde_json::Value;
 use writ_core::call::{CallerIdentity, InterceptMode, ServerIdentity, ToolCall, TrustVerdict};
 use writ_core::{Result, Timestamp, WritError};
 
-use crate::jsonrpc::{JsonRpcError, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse};
+use crate::jsonrpc::{JsonRpcError, JsonRpcMessage, JsonRpcRequest, JsonRpcResponse, RequestId};
 use crate::transport::Transport;
 
 /// What policy decided about one `tools/call`.
@@ -34,19 +41,30 @@ pub struct ProxyConfig {
 /// JSON-RPC error code used for writ refusals (server-defined range).
 pub const WRIT_REFUSAL_CODE: i64 = -32043;
 
-type DecisionHook = Box<dyn FnMut(&ToolCall) -> ProxyDecision>;
-type ObserveHook = Box<dyn FnMut(&ToolCall, &Value)>;
-type TransformHook = Box<dyn FnMut(&ToolCall, Value) -> Value>;
+pub type DecisionHook = Box<dyn FnMut(&ToolCall) -> ProxyDecision>;
+pub type ObserveHook = Box<dyn FnMut(&ToolCall, &Value)>;
+pub type TransformHook = Box<dyn FnMut(&ToolCall, Value) -> Value>;
 
-pub struct McpProxy<A: Transport, D: Transport> {
-    /// Public so tests and the CLI can inspect traffic after `run`.
-    pub agent_side: A,
-    pub downstream: D,
+/// Outcome of intercepting one `tools/call` request.
+pub enum Interception {
+    /// Policy allowed (or redact-allowed) the call: forward the request
+    /// unchanged and route its response through [`Interceptor::complete`].
+    Forward(ToolCall),
+    /// Policy refused: send this structured JSON-RPC error to the agent and
+    /// never forward the request.
+    Refused(JsonRpcResponse),
+}
+
+/// Transport-agnostic `tools/call` interception: decision, observation
+/// (execution record) and result transform (redaction).
+pub struct Interceptor {
     pub config: ProxyConfig,
     pub session_id: String,
     /// Auto-discovered downstream tool schemas (spec §11), populated on
     /// tools/list responses.
     pub tool_schemas: Vec<Value>,
+    /// Transport label recorded in `ToolCall.server.transport`.
+    pub transport: String,
     decide: DecisionHook,
     observe: Option<ObserveHook>,
     /// Result transform applied BEFORE the result re-enters the agent's
@@ -55,15 +73,14 @@ pub struct McpProxy<A: Transport, D: Transport> {
     transform: Option<TransformHook>,
 }
 
-impl<A: Transport, D: Transport> McpProxy<A, D> {
-    pub fn new(agent_side: A, downstream: D, config: ProxyConfig, decide: DecisionHook) -> Self {
+impl Interceptor {
+    pub fn new(config: ProxyConfig, transport: &str, decide: DecisionHook) -> Self {
         let session_id = format!("mcp-{}-{}", std::process::id(), Timestamp::now().epoch_ms());
-        McpProxy {
-            agent_side,
-            downstream,
+        Interceptor {
             config,
             session_id,
             tool_schemas: Vec::new(),
+            transport: transport.to_string(),
             decide,
             observe: None,
             transform: None,
@@ -79,10 +96,13 @@ impl<A: Transport, D: Transport> McpProxy<A, D> {
         self.transform = Some(hook);
     }
 
-    fn make_call(&self, req: &JsonRpcRequest) -> ToolCall {
+    /// Build the ToolCall for a `tools/call` request. `call_id` defaults to
+    /// `<session>:<request id>` (unique on a single stdio connection);
+    /// transports multiplexing several agent sessions pass their own.
+    pub fn make_call(&self, req: &JsonRpcRequest, call_id: Option<String>) -> ToolCall {
         let params = req.params.clone().unwrap_or(Value::Null);
         ToolCall {
-            call_id: format!("{}:{}", self.session_id, req.id),
+            call_id: call_id.unwrap_or_else(|| format!("{}:{}", self.session_id, req.id)),
             session_id: self.session_id.clone(),
             caller: CallerIdentity {
                 agent: self.config.agent.clone(),
@@ -101,33 +121,149 @@ impl<A: Transport, D: Transport> McpProxy<A, D> {
             args: params.get("arguments").cloned().unwrap_or(Value::Null),
             server: Some(ServerIdentity {
                 name: self.config.server_name.clone(),
-                transport: "stdio".to_string(),
+                transport: self.transport.clone(),
                 version: None,
             }),
             trust: self.config.trust,
             captured_at: Timestamp::now(),
         }
     }
-    /// Forward a request downstream and relay its response upstream.
-    /// Server→agent notifications received while waiting are relayed;
-    /// server→agent requests get a method-not-found error (documented
-    /// wave-1 limitation above).
-    fn forward_request(&mut self, req: &JsonRpcRequest) -> Result<()> {
+
+    /// Run the decision hook for one `tools/call` (exactly one decision per
+    /// call: the hook records it).
+    pub fn intercept(&mut self, req: &JsonRpcRequest, call_id: Option<String>) -> Interception {
+        let call = self.make_call(req, call_id);
+        match (self.decide)(&call) {
+            ProxyDecision::Forward => Interception::Forward(call),
+            ProxyDecision::Refuse { message } => {
+                Interception::Refused(refusal(req.id.clone(), message))
+            }
+        }
+    }
+
+    /// A forwarded call's response arrived: observe the ORIGINAL result
+    /// (the ledger hashes the unmasked output — spec §7 records "a hash of
+    /// the original"), then transform (redact) before the agent sees it.
+    pub fn complete(&mut self, call: &ToolCall, mut resp: JsonRpcResponse) -> JsonRpcResponse {
+        if let (Some(hook), Some(result)) = (&mut self.observe, resp.result.as_ref()) {
+            hook(call, result);
+        }
+        if let (Some(t), Some(result)) = (&mut self.transform, resp.result.take()) {
+            resp.result = Some(t(call, result));
+        }
+        resp
+    }
+
+    /// Apply only the result transform to a value produced while `call` was
+    /// in flight (e.g. a progress/log notification's params). Used so a
+    /// redact verdict also covers request-scoped notifications.
+    pub fn mask(&mut self, call: &ToolCall, value: Value) -> Value {
+        match &mut self.transform {
+            Some(t) => t(call, value),
+            None => value,
+        }
+    }
+
+    /// Passive observation of non-intercepted responses (schema discovery).
+    pub fn observe_response(&mut self, method: &str, resp: &JsonRpcResponse) {
+        if method == "tools/list" {
+            if let Some(tools) = resp
+                .result
+                .as_ref()
+                .and_then(|r| r.get("tools"))
+                .and_then(|t| t.as_array())
+            {
+                self.tool_schemas = tools.clone();
+            }
+        }
+    }
+}
+
+/// The structured writ refusal the agent receives for a refused call.
+pub fn refusal(id: RequestId, message: String) -> JsonRpcResponse {
+    JsonRpcResponse::error(
+        id,
+        JsonRpcError {
+            code: WRIT_REFUSAL_CODE,
+            message,
+            data: Some(serde_json::json!({ "writ_refusal": true })),
+        },
+    )
+}
+
+/// The stdio proxy: one agent connection, one downstream connection.
+pub struct McpProxy<A: Transport, D: Transport> {
+    /// Public so tests and the CLI can inspect traffic after `run`.
+    pub agent_side: A,
+    pub downstream: D,
+    core: Interceptor,
+}
+
+/// `proxy.config`, `proxy.session_id`, `proxy.tool_schemas` read through to
+/// the shared interceptor.
+impl<A: Transport, D: Transport> Deref for McpProxy<A, D> {
+    type Target = Interceptor;
+    fn deref(&self) -> &Interceptor {
+        &self.core
+    }
+}
+
+impl<A: Transport, D: Transport> DerefMut for McpProxy<A, D> {
+    fn deref_mut(&mut self) -> &mut Interceptor {
+        &mut self.core
+    }
+}
+
+impl<A: Transport, D: Transport> McpProxy<A, D> {
+    pub fn new(agent_side: A, downstream: D, config: ProxyConfig, decide: DecisionHook) -> Self {
+        Self::with_interceptor(
+            agent_side,
+            downstream,
+            Interceptor::new(config, "stdio", decide),
+        )
+    }
+
+    /// Build the proxy around an already-wired interceptor.
+    pub fn with_interceptor(agent_side: A, downstream: D, core: Interceptor) -> Self {
+        McpProxy {
+            agent_side,
+            downstream,
+            core,
+        }
+    }
+
+    pub fn on_result(&mut self, hook: ObserveHook) {
+        self.core.on_result(hook);
+    }
+
+    /// Register the redaction transform (see [`Interceptor`] docs).
+    pub fn set_result_transform(&mut self, hook: TransformHook) {
+        self.core.set_result_transform(hook);
+    }
+
+    /// Forward a request downstream and wait for its response. Server→agent
+    /// notifications received while waiting are relayed (through `mask` when
+    /// a tool call is in flight); server→agent requests get method-not-found
+    /// (documented limitation above).
+    fn roundtrip(
+        &mut self,
+        req: &JsonRpcRequest,
+        call: Option<&ToolCall>,
+    ) -> Result<JsonRpcResponse> {
         self.downstream
             .send(&JsonRpcMessage::Request(req.clone()))?;
         loop {
             match self.downstream.recv()? {
                 Some(JsonRpcMessage::Response(resp)) => {
                     if resp.id == req.id {
-                        if req.method == "tools/list" {
-                            self.cache_tools(&resp);
-                        }
-                        self.agent_side.send(&JsonRpcMessage::Response(resp))?;
-                        return Ok(());
+                        return Ok(resp);
                     }
                     tracing::warn!(id = %resp.id, "dropping unmatched downstream response");
                 }
-                Some(JsonRpcMessage::Notification(n)) => {
+                Some(JsonRpcMessage::Notification(mut n)) => {
+                    if let (Some(call), Some(p)) = (call, n.params.take()) {
+                        n.params = Some(self.core.mask(call, p));
+                    }
                     self.agent_side.send(&JsonRpcMessage::Notification(n))?;
                 }
                 Some(JsonRpcMessage::Request(r)) => {
@@ -136,7 +272,7 @@ impl<A: Transport, D: Transport> McpProxy<A, D> {
                         JsonRpcError {
                             code: -32601,
                             message:
-                                "writ proxy: server-initiated requests are not proxied (wave 1)"
+                                "writ proxy: server-initiated requests are not proxied over stdio"
                                     .into(),
                             data: None,
                         },
@@ -144,69 +280,30 @@ impl<A: Transport, D: Transport> McpProxy<A, D> {
                     self.downstream.send(&JsonRpcMessage::Response(err))?;
                 }
                 None => {
-                    return Err(WritError::Intercept(
-                        "downstream closed while awaiting response".into(),
-                    ))
+                    return Err(WritError::Intercept(match call {
+                        Some(_) => "downstream closed during tools/call".into(),
+                        None => "downstream closed while awaiting response".into(),
+                    }))
                 }
             }
         }
     }
 
-    fn cache_tools(&mut self, resp: &JsonRpcResponse) {
-        if let Some(tools) = resp
-            .result
-            .as_ref()
-            .and_then(|r| r.get("tools"))
-            .and_then(|t| t.as_array())
-        {
-            self.tool_schemas = tools.clone();
-        }
+    fn forward_request(&mut self, req: &JsonRpcRequest) -> Result<()> {
+        let resp = self.roundtrip(req, None)?;
+        self.core.observe_response(&req.method, &resp);
+        self.agent_side.send(&JsonRpcMessage::Response(resp))
     }
 
     /// Intercept a `tools/call`: ask the decider, then forward or refuse.
     fn handle_tool_call(&mut self, req: &JsonRpcRequest) -> Result<()> {
-        let call = self.make_call(req);
-        match (self.decide)(&call) {
-            ProxyDecision::Forward => {
-                self.downstream
-                    .send(&JsonRpcMessage::Request(req.clone()))?;
-                match self.downstream.recv()? {
-                    Some(JsonRpcMessage::Response(mut resp)) => {
-                        // 1. Observe the ORIGINAL (ledger hashes the unmasked
-                        //    result — spec §7 records "a hash of the original").
-                        if let (Some(hook), Some(result)) = (&mut self.observe, resp.result.clone())
-                        {
-                            hook(&call, &result);
-                        }
-                        // 2. Transform (redact) before the agent sees it.
-                        if let (Some(t), Some(result)) = (&mut self.transform, resp.result.take()) {
-                            resp.result = Some(t(&call, result));
-                        }
-                        self.agent_side.send(&JsonRpcMessage::Response(resp))?;
-                        Ok(())
-                    }
-                    Some(other) => {
-                        self.agent_side.send(&other)?;
-                        Err(WritError::Intercept(
-                            "unexpected downstream message during tools/call".into(),
-                        ))
-                    }
-                    None => Err(WritError::Intercept(
-                        "downstream closed during tools/call".into(),
-                    )),
-                }
-            }
-            ProxyDecision::Refuse { message } => {
-                let resp = JsonRpcResponse::error(
-                    req.id.clone(),
-                    JsonRpcError {
-                        code: WRIT_REFUSAL_CODE,
-                        message,
-                        data: Some(serde_json::json!({ "writ_refusal": true })),
-                    },
-                );
+        match self.core.intercept(req, None) {
+            Interception::Forward(call) => {
+                let resp = self.roundtrip(req, Some(&call))?;
+                let resp = self.core.complete(&call, resp);
                 self.agent_side.send(&JsonRpcMessage::Response(resp))
             }
+            Interception::Refused(resp) => self.agent_side.send(&JsonRpcMessage::Response(resp)),
         }
     }
 

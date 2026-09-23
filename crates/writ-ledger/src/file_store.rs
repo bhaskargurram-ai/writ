@@ -41,9 +41,19 @@
 //! never retried, so a retry can never duplicate a record).
 //!
 //! Readers take no lock. [`tip`](LedgerStore::tip), [`len`](LedgerStore::len),
-//! [`get`](LedgerStore::get) and [`iter`](LedgerStore::iter) see records
-//! other processes appended, and ignore an unterminated final line that does
-//! not parse (a write in progress, or a torn tail awaiting repair).
+//! [`get`](LedgerStore::get), [`iter`](LedgerStore::iter), `open` and
+//! `verify` see records other processes appended. A writer emits
+//! `record\n` in a single write, so any state of an in-progress append that
+//! a reader can observe is a prefix of that line: an unterminated,
+//! unparseable final chunk. Readers classify a line from its own bytes
+//! only — unterminated and unparseable is "not committed yet" (or crash
+//! debris awaiting repair), never corruption — and never read ahead to
+//! decide, because the writer may finish its line in between. A
+//! `\n`-terminated line that does not parse cannot be a write in progress
+//! and is always reported (mid-file corruption on `open`, a break at its
+//! index in `verify`); the one exception kept for crash-tolerance is such
+//! a line as the very last content of the file at `open`, which is
+//! truncated under the lock.
 
 use std::cell::RefCell;
 use std::ffi::OsString;
@@ -215,8 +225,19 @@ impl FileLedgerStore {
                     st.tip_record = Some(rec);
                 }
                 Err(e) => {
-                    // Only acceptable as the final (torn) line: nothing but
-                    // whitespace may follow it.
+                    // `read_until` returns a chunk without '\n' only at EOF.
+                    // A writer emits `record\n` in one write, so every state
+                    // a concurrent write can be seen in is a prefix of that
+                    // line: an unterminated chunk is a write in progress (or
+                    // crash debris). Decide from the chunk alone — reading
+                    // ahead would race with the writer finishing its line
+                    // and misreport it as mid-file corruption.
+                    if !line.ends_with(b"\n") {
+                        return Ok(true);
+                    }
+                    // A terminated line can never be a write in progress.
+                    // Tolerated only as final debris (nothing but
+                    // whitespace after it); anywhere else it is corruption.
                     let mut rest = Vec::new();
                     reader.read_to_end(&mut rest)?;
                     if trim_ascii(&rest).is_empty() {
@@ -328,7 +349,7 @@ impl LedgerStore for FileLedgerStore {
     }
 
     fn get(&self, index: u64) -> Result<Option<LedgerRecord>> {
-        for item in committed_iter(File::open(&self.path)?) {
+        for item in record_iter(File::open(&self.path)?) {
             let rec = item?;
             if rec.index == index {
                 return Ok(Some(rec));
@@ -350,60 +371,54 @@ impl LedgerStore for FileLedgerStore {
 
     fn iter(&self) -> Box<dyn Iterator<Item = Result<LedgerRecord>> + '_> {
         match File::open(&self.path) {
-            Ok(f) => Box::new(committed_iter(f)),
+            Ok(f) => Box::new(record_iter(f)),
             Err(e) => Box::new(std::iter::once(Err(WritError::Io(e)))),
         }
     }
 }
 
-/// Lazy line-by-line parse; never loads the whole file into memory.
-/// Blank lines are skipped; each non-blank line is one record. Used by
-/// `verify`, which must report every unparseable line.
+/// Lazy line-by-line parse; never loads the whole file into memory. Used by
+/// the store's `iter`/`get`, by `verify` and by the query helpers.
+///
+/// - Blank lines are skipped; each other `\n`-terminated line is one record,
+///   and one that does not parse is an `Err` (tampering or corruption —
+///   `verify` reports its position) and the scan continues.
+/// - The final chunk without a `\n` is the only place a write in progress
+///   (or a crashed writer's torn tail) can be seen, because every visible
+///   state of a concurrent append is a prefix of `record\n`. If it parses it
+///   is a complete record whose newline has not landed yet and is yielded;
+///   otherwise it ends the stream silently. It is never reported as
+///   corruption and nothing is read past it, so a reader running alongside
+///   writers cannot misclassify their lines.
 pub(crate) fn record_iter(file: File) -> impl Iterator<Item = Result<LedgerRecord>> {
-    BufReader::new(file).lines().filter_map(|line| match line {
-        Err(e) => Some(Err(WritError::Io(e))),
-        Ok(s) if s.trim().is_empty() => None,
-        Ok(s) => Some(serde_json::from_str(&s).map_err(WritError::from)),
-    })
-}
-
-/// The store's view: like [`record_iter`], but an unparseable line followed
-/// by nothing but whitespace is a write in progress (or a torn tail), not a
-/// record, and ends the stream silently.
-fn committed_iter(file: File) -> impl Iterator<Item = Result<LedgerRecord>> {
     let mut reader = BufReader::new(file);
     let mut done = false;
-    std::iter::from_fn(move || {
-        let mut line = Vec::new();
-        loop {
-            if done {
+    let mut line = Vec::new();
+    std::iter::from_fn(move || loop {
+        if done {
+            return None;
+        }
+        line.clear();
+        match reader.read_until(b'\n', &mut line) {
+            Err(e) => {
+                done = true;
+                return Some(Err(WritError::Io(e)));
+            }
+            Ok(0) => return None,
+            Ok(_) => {}
+        }
+        let trimmed = trim_ascii(&line);
+        if trimmed.is_empty() {
+            continue;
+        }
+        let terminated = line.ends_with(b"\n");
+        match serde_json::from_slice::<LedgerRecord>(trimmed) {
+            Ok(rec) => return Some(Ok(rec)),
+            Err(_) if !terminated => {
+                done = true; // write in progress / torn tail: not a record
                 return None;
             }
-            line.clear();
-            match reader.read_until(b'\n', &mut line) {
-                Err(e) => {
-                    done = true;
-                    return Some(Err(WritError::Io(e)));
-                }
-                Ok(0) => return None,
-                Ok(_) => {}
-            }
-            let trimmed = trim_ascii(&line);
-            if trimmed.is_empty() {
-                continue;
-            }
-            match serde_json::from_slice::<LedgerRecord>(trimmed) {
-                Ok(rec) => return Some(Ok(rec)),
-                Err(e) => {
-                    done = true;
-                    let mut rest = Vec::new();
-                    return match reader.read_to_end(&mut rest) {
-                        Ok(_) if trim_ascii(&rest).is_empty() => None,
-                        Ok(_) => Some(Err(WritError::from(e))),
-                        Err(io) => Some(Err(WritError::Io(io))),
-                    };
-                }
-            }
+            Err(e) => return Some(Err(WritError::from(e))),
         }
     })
 }

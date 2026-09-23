@@ -15,7 +15,9 @@ use writ_core::pipeline::handle_call;
 use writ_core::verdict::Verdict;
 use writ_core::{PolicyEngine, Timestamp};
 use writ_ledger::SessionSummary;
-use writ_mcp::{stdio_transport, CredentialStore, McpProxy, ProxyConfig, ProxyDecision};
+use writ_mcp::{
+    stdio_transport, CredentialStore, Interceptor, McpProxy, ProxyConfig, ProxyDecision,
+};
 use writ_policy::NativePolicyEngine;
 use writ_tui::{render_call_line, render_rule_note};
 
@@ -37,12 +39,28 @@ pub(crate) fn load_engine(policy_path: &Path, yolo: bool) -> Result<NativePolicy
     NativePolicyEngine::from_source(&source).map_err(|e| anyhow!(e.to_string()))
 }
 
+/// Whether the ledger location is a Postgres URL rather than a file path.
+pub(crate) fn is_pg(ledger: &Path) -> bool {
+    ledger.to_str().is_some_and(writ_ledger::is_postgres_url)
+}
+
+/// Whether there is a ledger to read. A Postgres URL cannot be checked on
+/// the filesystem; the store itself reports a missing ledger.
+pub(crate) fn ledger_present(ledger: &Path) -> bool {
+    is_pg(ledger) || ledger.exists()
+}
+
+/// The ledger as shown to people: a Postgres URL has its password redacted.
+pub(crate) fn show_ledger(ledger: &Path) -> String {
+    writ_ledger::display_ledger(ledger)
+}
+
 pub(crate) fn banner(engine: &NativePolicyEngine, policy: &Path, ledger: &Path) {
     eprintln!(
         "  writ · {} rules loaded from {} · ledger: {}",
         engine.rule_count(),
         policy.display(),
-        ledger.display()
+        show_ledger(ledger)
     );
 }
 
@@ -105,6 +123,25 @@ pub fn proxy(
         writ_mcp::spawn_stdio_server(&cmd[0], &cmd[1..], server, &creds, &BTreeMap::new())
             .map_err(|e| anyhow!(e.to_string()))?;
 
+    let core = mcp_interceptor(engine, ledger, server, "stdio")?;
+    let mut proxy = McpProxy::with_interceptor(stdio_transport(), spawned.transport, core);
+
+    proxy.run().map_err(|e| anyhow!(e.to_string()))?;
+    eprintln!("  writ · session closed · ledger: {}", show_ledger(ledger));
+    Ok(())
+}
+
+/// The MCP interception wiring shared by every proxy transport (stdio here,
+/// Streamable HTTP in `mcp_http`): per `tools/call` evaluate policy, ask
+/// fail-closed, record exactly one decision, forward only on allow/redact,
+/// record the execution with the output hash, and mask redact patterns
+/// before the result reaches the agent.
+pub(crate) fn mcp_interceptor(
+    engine: NativePolicyEngine,
+    ledger: &Path,
+    server: &str,
+    transport: &str,
+) -> Result<Interceptor> {
     let store = Rc::new(RefCell::new(
         writ_ledger::open_store(ledger).map_err(|e| anyhow!(e.to_string()))?,
     ));
@@ -151,14 +188,13 @@ pub fn proxy(
 
     // Observation hook: execution record with output hash for forwarded calls.
     let (store_o, decisions_o) = (Rc::clone(&store), Rc::clone(&decisions));
-    let mut proxy = McpProxy::new(
-        stdio_transport(),
-        spawned.transport,
+    let mut proxy = Interceptor::new(
         ProxyConfig {
             server_name: server.to_string(),
             agent: std::env::var("WRIT_AGENT").unwrap_or_else(|_| "unknown-agent".into()),
             trust: None,
         },
+        transport,
         decide,
     );
     proxy.on_result(Box::new(
@@ -206,10 +242,7 @@ pub fn proxy(
             )
         },
     ));
-
-    proxy.run().map_err(|e| anyhow!(e.to_string()))?;
-    eprintln!("  writ · session closed · ledger: {}", ledger.display());
-    Ok(())
+    Ok(proxy)
 }
 
 /// Structured refusal text (spec §12 voice: name the rule, give the reason).
@@ -252,8 +285,11 @@ fn summarize(args: &serde_json::Value) -> String {
 }
 /// `writ log` — the answer to "what did my agent do last night".
 pub fn log(ledger: &Path) -> Result<()> {
-    if !ledger.exists() {
-        bail!("no ledger at {} — nothing recorded yet", ledger.display());
+    if !ledger_present(ledger) {
+        bail!(
+            "no ledger at {} — nothing recorded yet",
+            show_ledger(ledger)
+        );
     }
     let sessions: Vec<SessionSummary> =
         writ_ledger::sessions(ledger).map_err(|e| anyhow!(e.to_string()))?;
@@ -298,8 +334,8 @@ pub fn show(ledger: &Path, call_id: &str) -> Result<()> {
 
 /// `writ verify` — verify the local hash chain and name the first break.
 pub fn verify(ledger: &Path) -> Result<()> {
-    if !ledger.exists() {
-        bail!("no ledger at {}", ledger.display());
+    if !ledger_present(ledger) {
+        bail!("no ledger at {}", show_ledger(ledger));
     }
     let report = writ_ledger::verify(ledger).map_err(|e| anyhow!(e.to_string()))?;
     if report.intact {
@@ -376,22 +412,22 @@ pub fn doctor(policy: &Path, ledger: &Path) -> Result<()> {
         Err(_) => println!("policy    : none at {}", policy.display()),
     }
 
-    if ledger.exists() {
+    if ledger_present(ledger) {
         match writ_ledger::verify(ledger) {
             Ok(r) if r.intact => println!(
                 "ledger    : {} · {} records · chain intact",
-                ledger.display(),
+                show_ledger(ledger),
                 r.records
             ),
             Ok(r) => println!(
                 "ledger    : {} · CHAIN BROKEN at record {}",
-                ledger.display(),
+                show_ledger(ledger),
                 r.broken_at.unwrap_or(0)
             ),
-            Err(e) => println!("ledger    : {} · unreadable: {e}", ledger.display()),
+            Err(e) => println!("ledger    : {} · unreadable: {e}", show_ledger(ledger)),
         }
     } else {
-        println!("ledger    : none at {} yet", ledger.display());
+        println!("ledger    : none at {} yet", show_ledger(ledger));
     }
     println!();
 
@@ -447,8 +483,8 @@ pub fn doctor(policy: &Path, ledger: &Path) -> Result<()> {
 }
 /// `writ report` — shareable single-file HTML run summary (spec §9).
 pub fn report(ledger: &Path, out: &Path) -> Result<()> {
-    if !ledger.exists() {
-        bail!("no ledger at {}", ledger.display());
+    if !ledger_present(ledger) {
+        bail!("no ledger at {}", show_ledger(ledger));
     }
     let store = writ_ledger::open_store(ledger).map_err(|e| anyhow!(e.to_string()))?;
     let mut rows = String::new();
@@ -506,10 +542,19 @@ pub fn report(ledger: &Path, out: &Path) -> Result<()> {
 /// Emit one GenAI-convention span for a governed call (spec §13).
 /// Spans land in spans.jsonl next to the ledger; OTLP export is wave 2.
 pub(crate) fn emit_span(ledger: &Path, call: &ToolCall, verdict: &Verdict) {
-    let path = ledger
-        .parent()
-        .unwrap_or_else(|| Path::new("."))
-        .join("spans.jsonl");
+    // Spans sit next to a file ledger; a Postgres ledger has no directory,
+    // so they go to ./.writ/ instead.
+    let dir = if is_pg(ledger) {
+        let dir = Path::new(".writ").to_path_buf();
+        let _ = std::fs::create_dir_all(&dir);
+        dir
+    } else {
+        ledger
+            .parent()
+            .unwrap_or_else(|| Path::new("."))
+            .to_path_buf()
+    };
+    let path = dir.join("spans.jsonl");
     let Ok(file) = std::fs::OpenOptions::new()
         .create(true)
         .append(true)

@@ -206,3 +206,13 @@ async def test_async_client_allow_and_timeout(fake_bin):
             await ac.decide(call("hang"))
         d = await ac.decide(call("redacty"), timeout=10)
         assert (await ac.complete(d.ref, True, output="123-45-6789")).output == "[redacted-by-writ]"
+
+
+def test_ask_ui_is_accepted_with_a_longer_default_timeout():
+    from writ_sdk.client import UI_ASK_TIMEOUT
+
+    assert WritClient(ask="ui").timeout == UI_ASK_TIMEOUT
+    assert WritClient(ask="ui", timeout=5).timeout == 5
+    assert WritClient().timeout == 30.0
+    with pytest.raises(ValueError):
+        WritClient(ask="maybe")

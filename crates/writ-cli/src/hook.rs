@@ -121,7 +121,20 @@ pub enum Format {
     Writ,
     /// Claude Code hook payloads (PreToolUse / PostToolUse).
     ClaudeCode,
+    /// OpenAI Codex CLI hooks (PreToolUse / PostToolUse).
+    Codex,
+    /// Gemini CLI hooks (BeforeTool / AfterTool).
+    Gemini,
+    /// Cursor hooks (preToolUse / beforeMCPExecution / postToolUse /
+    /// postToolUseFailure).
+    Cursor,
+    /// Windsurf Cascade hooks (pre_/post_ run_command, read_code,
+    /// write_code, mcp_tool_use).
+    Windsurf,
 }
+
+/// The other coding agents' hook formats (`hook/agents.rs`).
+mod agents;
 
 /// What an `ask` verdict does when `writ check` has no terminal.
 #[derive(Clone, Copy, Debug, PartialEq, Eq, clap::ValueEnum)]
@@ -131,8 +144,8 @@ pub enum AskMode {
     /// Return `approval: "required"`; the agent's own UI asks the human.
     Defer,
     /// Wait for a human decision on the `writ ui` Approvals screen; fail
-    /// closed on timeout or when no console answers. Until implemented this
-    /// behaves as `deny`.
+    /// closed on timeout, when no console is running, or on any error
+    /// (see `ui::approvals`).
     Ui,
 }
 
@@ -193,6 +206,9 @@ pub fn check(
             emit_line(&out.stdout);
             out.code
         }
+        (Format::Codex | Format::Gemini | Format::Cursor | Format::Windsurf, stdio) => {
+            agents::run(&mut gw, format, stdio)
+        }
     };
     let _ = std::io::stdout().flush();
     std::process::exit(code);
@@ -215,6 +231,11 @@ fn install_fail_closed_panic_hook(format: Format) {
             Format::Writ => {
                 eprintln!("{msg}");
                 std::process::exit(EXIT_ERROR);
+            }
+            // Each agent's own blocking answer (see `hook/agents.rs`).
+            Format::Codex | Format::Gemini | Format::Cursor | Format::Windsurf => {
+                let code = agents::emit(&agents::pre_error(format, &msg));
+                std::process::exit(code);
             }
         }
     }));
@@ -332,6 +353,10 @@ impl Gateway {
             backend: match format {
                 Format::Writ => "sdk-hook",
                 Format::ClaudeCode => "claude-code",
+                Format::Codex => "codex",
+                Format::Gemini => "gemini-cli",
+                Format::Cursor => "cursor",
+                Format::Windsurf => "windsurf",
             },
         }
     }
@@ -357,7 +382,9 @@ impl Gateway {
         // `--ask deny`: the headless fail-closed approver answers, and its
         // identity is recorded with the ask (as `handle_call` does).
         let approver = match (&verdict, self.ask) {
-            (Verdict::Ask { .. }, AskMode::Deny | AskMode::Ui) => {
+            // `--ask ui` records the ask with no approver (like `defer`):
+            // the console's approval is evidenced by the execution record.
+            (Verdict::Ask { .. }, AskMode::Deny) => {
                 let view = AskView::from_verdict(&verdict).expect("ask verdict");
                 let outcome = FailClosedApprover
                     .request(&call, &view)
@@ -533,7 +560,7 @@ impl Gateway {
     ) -> std::result::Result<(Map<String, Value>, i32), GwError> {
         let call = parse_call(obj.get("call"))?;
         let d = self.decide_call(call)?;
-        let r = make_ref(&d.record, None);
+        let mut r = make_ref(&d.record, None);
         let mut body = Map::new();
         body.insert("call_id".into(), json!(d.call.call_id));
         let dispatch = match &d.verdict {
@@ -563,7 +590,30 @@ impl Gateway {
                 irreversible,
                 location,
             } => match self.ask {
-                AskMode::Deny | AskMode::Ui => {
+                AskMode::Ui => {
+                    match crate::ui::approvals::await_decision(
+                        &self.ledger_path,
+                        &d.record,
+                        "writ",
+                        None,
+                    ) {
+                        crate::ui::approvals::UiDecision::Approved(who) => {
+                            body.insert("decision".into(), json!("allow"));
+                            body.insert("rule_id".into(), json!(rule_id));
+                            body.insert("approver".into(), json!(who.id));
+                            // Like a resolve-time ref: `complete` records
+                            // the approver on the execution record.
+                            r = make_ref(&d.record, Some(&who));
+                            true
+                        }
+                        crate::ui::approvals::UiDecision::Denied(reason) => {
+                            insert_deny(&mut body, rule_id, &reason, location.as_deref());
+                            body.insert("verdict".into(), json!("ask"));
+                            false
+                        }
+                    }
+                }
+                AskMode::Deny => {
                     let reason = format!(
                         "rule \"{rule_id}\" requires human approval; `writ check --ask deny` has no approver (fail closed)"
                     );
@@ -604,6 +654,13 @@ impl Gateway {
         obj: &Map<String, Value>,
     ) -> std::result::Result<(Map<String, Value>, i32), GwError> {
         let r = parse_ref(obj.get("ref"))?;
+        if self.ask == AskMode::Ui {
+            // Under `--ask ui` only the console decides; decide never
+            // returns approval "required".
+            return Err(GwError::state(
+                "`--ask ui` takes approvals from the writ ui console only; resolve is not accepted",
+            ));
+        }
         if r.approver.is_some() {
             return Err(GwError::state("this ref is already resolved"));
         }
@@ -763,6 +820,14 @@ impl Gateway {
             Ok(_) => return ClaudeOut::pre_error("hook payload is not a JSON object"),
             Err(e) => return ClaudeOut::pre_error(&format!("malformed hook payload: {e}")),
         };
+        // Cursor also runs the hooks in `.claude/settings.json` (its
+        // "third-party hooks"), with Cursor payloads. Still fail closed,
+        // but say what to do.
+        if payload.get("cursor_version").is_some() {
+            return ClaudeOut::pre_error(
+                "this is a Cursor hook payload (Cursor also runs the Claude Code hooks in .claude/settings.json): run `writ integrate cursor` and turn off Cursor's third-party hook import, or remove writ's hooks from .claude/settings.json",
+            );
+        }
         let event = payload
             .get("hook_event_name")
             .and_then(Value::as_str)
@@ -828,7 +893,29 @@ impl Gateway {
                     ),
                     EXIT_DISPATCH,
                 ),
-                AskMode::Deny | AskMode::Ui => ClaudeOut::pre(
+                // Bounded below Claude Code's own hook timeout: a hook that
+                // times out there does not block the tool.
+                AskMode::Ui => match crate::ui::approvals::await_decision(
+                    &self.ledger_path,
+                    &d.record,
+                    "claude-code",
+                    Some(crate::ui::approvals::CLAUDE_CODE_CAP_MS),
+                ) {
+                    crate::ui::approvals::UiDecision::Approved(who) => ClaudeOut::pre(
+                        "allow",
+                        &format!(
+                            "writ: rule \"{rule_id}\" approved in the writ ui web console by {}",
+                            who.id
+                        ),
+                        EXIT_DISPATCH,
+                    ),
+                    crate::ui::approvals::UiDecision::Denied(reason) => ClaudeOut::pre(
+                        "deny",
+                        &format!("writ denied this: {reason}"),
+                        EXIT_NO_DISPATCH,
+                    ),
+                },
+                AskMode::Deny => ClaudeOut::pre(
                     "deny",
                     &format!(
                         "writ denied this: rule \"{rule_id}\" requires human approval and none is available here (fail closed)"
@@ -879,6 +966,21 @@ impl Gateway {
         let plain = patterns.is_none();
         let approver = match &rec.verdict {
             Some(Verdict::Allow { .. }) | Some(Verdict::Redact { .. }) => None,
+            // `--ask ui`: approved in the console, which says by whom.
+            Some(Verdict::Ask { .. }) if rec.approver.is_none() && self.ask == AskMode::Ui => {
+                match crate::ui::approvals::console_approval(&self.ledger_path, &rec) {
+                    Some(who) => Some(who),
+                    None => {
+                        return fail(
+                            format!(
+                                "tool {tool_use_id} ran although the writ ui console did not approve it (rule {}); recorded nothing",
+                                rec.rule_id.as_deref().unwrap_or("?")
+                            ),
+                            plain,
+                        )
+                    }
+                }
+            }
             // Deferred to Claude Code's prompt, and the tool ran: approved there.
             Some(Verdict::Ask { .. }) if rec.approver.is_none() => Some(ApproverIdentity {
                 kind: ApproverKind::Tui,

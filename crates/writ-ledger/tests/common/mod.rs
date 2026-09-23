@@ -83,6 +83,13 @@ pub trait Backend {
     const CORRUPTION_MSG: &'static str;
 
     fn open(path: &Path) -> Result<Self::Store, WritError>;
+    /// Where a test's ledger lives. Default: `<dir>/.writ/FILE_NAME` (a
+    /// nested path, which also exercises parent-dir creation in `open`).
+    /// Non-file stores return a location string derived from `dir`, which
+    /// is unique per test.
+    fn location(dir: &TempDir) -> PathBuf {
+        dir.path().join(".writ").join(Self::FILE_NAME)
+    }
     /// Rewrite record `idx`'s `session_id`, keeping it well-formed JSON.
     fn tamper_session(path: &Path, idx: u64, session_id: &str);
     /// Make record `idx` impossible to parse as a `LedgerRecord`.
@@ -92,8 +99,12 @@ pub trait Backend {
 }
 
 pub fn ledger_path<B: Backend>(dir: &TempDir) -> PathBuf {
-    // Nested path also exercises parent-dir creation in open().
-    dir.path().join(".writ").join(B::FILE_NAME)
+    B::location(dir)
+}
+
+/// Default guard for [`ledger_suite!`]: always run.
+pub fn always() -> bool {
+    true
 }
 
 /// Three records: decision(allow) + execution in s1, decision(deny) in s2.
@@ -390,63 +401,111 @@ impl Backend for FileBackend {
     }
 }
 
-/// Instantiate the whole generic suite for one backend.
+/// Instantiate the whole generic suite for one backend. With
+/// `guard = path::to::fn`, each test first calls the guard and returns
+/// early (skips) when it is false — for stores that need an external
+/// service.
 macro_rules! ledger_suite {
     ($backend:ty) => {
+        ledger_suite!($backend, guard = common::always);
+    };
+    ($backend:ty, guard = $guard:path) => {
         #[test]
         fn roundtrip_append_iter_and_reopen() {
+            if !$guard() {
+                return;
+            }
             common::roundtrip_append_iter_and_reopen::<$backend>();
         }
         #[test]
         fn genesis_record_has_zero_prev_hash() {
+            if !$guard() {
+                return;
+            }
             common::genesis_record_has_zero_prev_hash::<$backend>();
         }
         #[test]
         fn rejects_out_of_order_append() {
+            if !$guard() {
+                return;
+            }
             common::rejects_out_of_order_append::<$backend>();
         }
         #[test]
         fn rejects_wrong_prev_hash() {
+            if !$guard() {
+                return;
+            }
             common::rejects_wrong_prev_hash::<$backend>();
         }
         #[test]
         fn rejects_wrong_record_hash() {
+            if !$guard() {
+                return;
+            }
             common::rejects_wrong_record_hash::<$backend>();
         }
         #[test]
         fn verify_reports_exact_index_on_valid_json_tamper() {
+            if !$guard() {
+                return;
+            }
             common::verify_reports_exact_index_on_valid_json_tamper::<$backend>();
         }
         #[test]
         fn verify_reports_tip_tamper() {
+            if !$guard() {
+                return;
+            }
             common::verify_reports_tip_tamper::<$backend>();
         }
         #[test]
         fn verify_reports_exact_index_on_unparseable_tamper() {
+            if !$guard() {
+                return;
+            }
             common::verify_reports_exact_index_on_unparseable_tamper::<$backend>();
         }
         #[test]
         fn verify_detects_deleted_middle_record_as_chain_break() {
+            if !$guard() {
+                return;
+            }
             common::verify_detects_deleted_middle_record_as_chain_break::<$backend>();
         }
         #[test]
         fn mid_ledger_corruption_is_a_hard_error_on_open() {
+            if !$guard() {
+                return;
+            }
             common::mid_ledger_corruption_is_a_hard_error_on_open::<$backend>();
         }
         #[test]
         fn deleted_record_is_a_hard_error_on_open() {
+            if !$guard() {
+                return;
+            }
             common::deleted_record_is_a_hard_error_on_open::<$backend>();
         }
         #[test]
         fn sessions_and_find_by_call_id() {
+            if !$guard() {
+                return;
+            }
             common::sessions_and_find_by_call_id::<$backend>();
         }
         #[test]
         fn empty_ledger_verifies_intact() {
+            if !$guard() {
+                return;
+            }
             common::empty_ledger_verifies_intact::<$backend>();
         }
         #[test]
         fn open_store_picks_this_backend() {
+            if !$guard() {
+                return;
+            }
             common::open_store_picks_this_backend::<$backend>();
         }
     };

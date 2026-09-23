@@ -37,7 +37,8 @@ pub enum PathKind {
 /// What writ knows about an agent CLI.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct AgentProfile {
-    /// Profile key (`claude`, `codex`, `gemini`, `aider`, `generic`).
+    /// Profile key (`claude`, `codex`, `gemini`, `cursor`, `aider`,
+    /// `generic`).
     pub name: &'static str,
     /// Human name.
     pub display: &'static str,
@@ -55,9 +56,28 @@ pub struct AgentProfile {
     /// Package caches this agent commonly writes through the tools it
     /// runs; suggested (never granted by default) via `--allow-write`.
     pub suggest_caches: bool,
-    /// The agent is Claude Code: it accepts `--settings <file-or-json>`, so
-    /// writ's per-tool-call hooks can be passed in.
-    pub claude_code_hooks: bool,
+    /// How writ's per-tool-call hooks can be passed to this agent for one
+    /// invocation (`writ run`), if at all.
+    pub hooks: HookSupport,
+}
+
+/// Per-invocation hook injection an agent supports (see `writ run`).
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum HookSupport {
+    /// No per-invocation hook mechanism writ knows of.
+    None,
+    /// Claude Code: `--settings <file>` (outranks user/project settings).
+    ClaudeSettings,
+    /// OpenAI Codex CLI: `-c hooks.<Event>=[...]` session-flag overrides
+    /// plus `--dangerously-bypass-hook-trust` (writ vets its own hooks).
+    CodexConfigFlags,
+    /// Gemini CLI: `GEMINI_CLI_SYSTEM_SETTINGS_PATH` pointing at a
+    /// writ-owned system settings file (system settings override user and
+    /// workspace settings).
+    GeminiSystemSettings,
+    /// Cursor CLI (`agent` / `cursor-agent`): `--plugin-dir <dir>` with a
+    /// writ-owned local plugin that bundles the hooks.
+    CursorPluginDir,
 }
 
 /// Environment lookup for path resolution (injected for tests).
@@ -189,7 +209,7 @@ fn claude(d: &Dirs, env: &dyn EnvLookup) -> AgentProfile {
         protect,
         workspace_protect: vec![".claude/settings.json", ".claude/settings.local.json"],
         suggest_caches: true,
-        claude_code_hooks: true,
+        hooks: HookSupport::ClaudeSettings,
     }
 }
 
@@ -215,8 +235,78 @@ fn simple(
         protect: Vec::new(),
         workspace_protect: Vec::new(),
         suggest_caches: true,
-        claude_code_hooks: false,
+        hooks: HookSupport::None,
     }
+}
+
+/// OpenAI Codex CLI: everything lives in `CODEX_HOME` (default `~/.codex`):
+/// config.toml, hooks.json, auth, sessions, logs. Hooks load from
+/// `config.toml`/`hooks.json` next to every config layer, so both are
+/// protected there and in the workspace's `.codex/`.
+fn codex(d: &Dirs, env: &dyn EnvLookup) -> AgentProfile {
+    let mut p = simple(
+        "codex",
+        "OpenAI Codex CLI",
+        Some("CODEX_HOME"),
+        ".codex",
+        d,
+        env,
+    );
+    if let Some(base) = p.paths.first().map(|p| p.path.clone()) {
+        p.protect = vec![base.join("config.toml"), base.join("hooks.json")];
+    }
+    p.workspace_protect = vec![".codex/config.toml", ".codex/hooks.json"];
+    p.hooks = HookSupport::CodexConfigFlags;
+    p
+}
+
+/// Gemini CLI: `~/.gemini` (or `$GEMINI_CLI_HOME/.gemini`) holds
+/// settings.json, OAuth credentials, history and tmp.
+fn gemini(d: &Dirs, env: &dyn EnvLookup) -> AgentProfile {
+    let base = env
+        .get("GEMINI_CLI_HOME")
+        .map(|h| PathBuf::from(h).join(".gemini"))
+        .or_else(|| d.home.as_ref().map(|h| h.join(".gemini")));
+    let mut p = simple("gemini", "Gemini CLI", None, ".gemini", d, env);
+    p.paths = base
+        .clone()
+        .map(|b| vec![dir(b, "agent state", true)])
+        .unwrap_or_default();
+    p.protect = base
+        .map(|b| vec![b.join("settings.json")])
+        .unwrap_or_default();
+    p.workspace_protect = vec![".gemini/settings.json"];
+    p.hooks = HookSupport::GeminiSystemSettings;
+    p
+}
+
+/// Cursor CLI (`agent`, formerly `cursor-agent`): `~/.cursor` (or
+/// `CURSOR_CONFIG_DIR`) holds cli-config.json, chats, worktrees and user
+/// hooks. Cursor also loads Claude Code hook files, so those are
+/// protected too. The install dir (`~/.local/share/cursor-agent`) is not
+/// granted: that is the self-updater's.
+fn cursor(d: &Dirs, env: &dyn EnvLookup) -> AgentProfile {
+    let mut p = simple(
+        "cursor",
+        "Cursor CLI",
+        Some("CURSOR_CONFIG_DIR"),
+        ".cursor",
+        d,
+        env,
+    );
+    if let Some(base) = p.paths.first().map(|p| p.path.clone()) {
+        p.protect.push(base.join("hooks.json"));
+    }
+    if let Some(h) = &d.home {
+        p.protect.push(h.join(".claude").join("settings.json"));
+    }
+    p.workspace_protect = vec![
+        ".cursor/hooks.json",
+        ".claude/settings.json",
+        ".claude/settings.local.json",
+    ];
+    p.hooks = HookSupport::CursorPluginDir;
+    p
 }
 
 /// The built-in profile for `program` (see the module docs).
@@ -224,15 +314,10 @@ pub fn agent_profile(program: &str, env: &dyn EnvLookup) -> AgentProfile {
     let d = Dirs::from(env);
     match agent_key(program).as_str() {
         "claude" => claude(&d, env),
-        "codex" => simple(
-            "codex",
-            "OpenAI Codex CLI",
-            Some("CODEX_HOME"),
-            ".codex",
-            &d,
-            env,
-        ),
-        "gemini" => simple("gemini", "Gemini CLI", None, ".gemini", &d, env),
+        "codex" => codex(&d, env),
+        "gemini" => gemini(&d, env),
+        // The Cursor CLI installs as `agent` (and, earlier, `cursor-agent`).
+        "cursor-agent" | "agent" => cursor(&d, env),
         "aider" => {
             // ~/.aider holds caches, analytics and oauth keys; aider's
             // history/tag caches live in the repo (workspace).
@@ -250,7 +335,7 @@ pub fn agent_profile(program: &str, env: &dyn EnvLookup) -> AgentProfile {
             protect: Vec::new(),
             workspace_protect: Vec::new(),
             suggest_caches: false,
-            claude_code_hooks: false,
+            hooks: HookSupport::None,
         },
     }
 }
@@ -391,7 +476,7 @@ mod tests {
         let (hk, hv) = home();
         let e = env(&[(hk, hv), ("LOCALAPPDATA", r"C:\Users\u\AppData\Local")]);
         let p = agent_profile("claude", &e);
-        assert!(p.claude_code_hooks);
+        assert_eq!(p.hooks, HookSupport::ClaudeSettings);
         let h = PathBuf::from(hv);
         let paths: Vec<&PathBuf> = p.paths.iter().map(|p| &p.path).collect();
         assert!(paths.contains(&&h.join(".claude")));
@@ -436,7 +521,36 @@ mod tests {
         assert_eq!(agent_profile("aider", &e).paths[0].path, h.join(".aider"));
         let g = agent_profile("bash", &e);
         assert_eq!(g.name, "generic");
-        assert!(g.paths.is_empty() && !g.claude_code_hooks);
+        assert!(g.paths.is_empty() && g.hooks == HookSupport::None);
+    }
+
+    #[test]
+    fn hook_capable_agents_protect_their_hook_files() {
+        let (hk, hv) = home();
+        let e = env(&[(hk, hv)]);
+        let h = PathBuf::from(hv);
+        let x = agent_profile("codex", &e);
+        assert_eq!(x.hooks, HookSupport::CodexConfigFlags);
+        assert!(x.protect.contains(&h.join(".codex").join("config.toml")));
+        assert!(x.protect.contains(&h.join(".codex").join("hooks.json")));
+        assert!(x.workspace_protect.contains(&".codex/hooks.json"));
+
+        let g = agent_profile("gemini", &e);
+        assert_eq!(g.hooks, HookSupport::GeminiSystemSettings);
+        assert_eq!(g.protect, vec![h.join(".gemini").join("settings.json")]);
+        let g = agent_profile("gemini", &env(&[(hk, hv), ("GEMINI_CLI_HOME", "/gh")]));
+        assert_eq!(g.paths[0].path, PathBuf::from("/gh").join(".gemini"));
+
+        for name in ["agent", "cursor-agent", r"C:\bin\cursor-agent.cmd"] {
+            let c = agent_profile(name, &e);
+            assert_eq!(c.name, "cursor", "{name}");
+            assert_eq!(c.hooks, HookSupport::CursorPluginDir);
+            assert_eq!(c.paths[0].path, h.join(".cursor"));
+            assert!(c.protect.contains(&h.join(".cursor").join("hooks.json")));
+            assert!(c.workspace_protect.contains(&".claude/settings.json"));
+        }
+        let c = agent_profile("agent", &env(&[(hk, hv), ("CURSOR_CONFIG_DIR", "/cc")]));
+        assert_eq!(c.paths[0].path, PathBuf::from("/cc"));
     }
 
     #[test]

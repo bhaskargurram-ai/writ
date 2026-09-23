@@ -255,3 +255,197 @@ fn lock_file_sits_next_to_the_ledger() {
     );
     assert!(store.lock_path().exists(), "created by the first append");
 }
+
+// ---------------------------------------------------------------------------
+// Multi-process stress: writer *processes* (this test binary re-invoked)
+// append large records while reader threads open / tip / iter / get /
+// verify the same file without the lock. Readers must never see
+// corruption or a broken chain for a write that is still in progress.
+
+const STRESS_LEDGER_ENV: &str = "WRIT_STRESS_LEDGER";
+const STRESS_WRITER_ENV: &str = "WRIT_STRESS_WRITER";
+const STRESS_RECORDS_ENV: &str = "WRIT_STRESS_RECORDS";
+
+/// Child half of `multi_process_writers_with_lock_free_readers`; a no-op
+/// unless the parent set the stress environment.
+#[test]
+fn stress_child_writer() {
+    let Ok(path) = std::env::var(STRESS_LEDGER_ENV) else {
+        return;
+    };
+    let writer: usize = std::env::var(STRESS_WRITER_ENV).unwrap().parse().unwrap();
+    let n: usize = std::env::var(STRESS_RECORDS_ENV).unwrap().parse().unwrap();
+    let mut store = FileLedgerStore::open(&path).unwrap();
+    // ~24 KiB per record: every append spans several pages, so a reader
+    // can observe it half-copied.
+    let filler = "x".repeat(24 * 1024);
+    for i in 0..n {
+        let mut c = call(&format!("w{writer}-c{i}"), &format!("w{writer}"));
+        c.args = serde_json::json!({"command": "ls", "content": filler});
+        retry_append(|| LedgerWriter::new(&mut store).record_decision(&c, &allow(), None))
+            .unwrap_or_else(|e| panic!("writer {writer}: {e}"));
+    }
+}
+
+fn spawn_writer(path: &std::path::Path, writer: usize, n: usize) -> std::process::Child {
+    let exe = std::env::current_exe().unwrap();
+    let mut attempt = 0;
+    loop {
+        let r = std::process::Command::new(&exe)
+            .args([
+                "stress_child_writer",
+                "--exact",
+                "--test-threads=1",
+                "--quiet",
+            ])
+            .env(STRESS_LEDGER_ENV, path)
+            .env(STRESS_WRITER_ENV, writer.to_string())
+            .env(STRESS_RECORDS_ENV, n.to_string())
+            .stdout(std::process::Stdio::null())
+            .spawn();
+        match r {
+            Ok(c) => return c,
+            // Windows Application Control transiently blocks fresh binaries.
+            Err(e) if e.raw_os_error() == Some(4551) && attempt < 10 => {
+                attempt += 1;
+                std::thread::sleep(std::time::Duration::from_millis(300));
+            }
+            Err(e) => panic!("spawn writer: {e}"),
+        }
+    }
+}
+
+#[test]
+fn multi_process_writers_with_lock_free_readers() {
+    use std::sync::atomic::{AtomicBool, AtomicU64, Ordering};
+    use std::sync::Arc;
+
+    const WRITERS: usize = 8;
+    const PER_WRITER: usize = 30;
+    const READERS: usize = 4;
+    let dir = TempDir::new();
+    let path = ledger_path::<FileBackend>(&dir);
+    drop(FileLedgerStore::open(&path).unwrap());
+
+    let done = Arc::new(AtomicBool::new(false));
+    let reads = Arc::new(AtomicU64::new(0));
+    let readers: Vec<_> = (0..READERS)
+        .map(|r| {
+            let (path, done, reads) = (path.clone(), done.clone(), reads.clone());
+            std::thread::spawn(move || {
+                // One long-lived handle (incremental refresh) plus fresh
+                // opens, iteration and full verification, in a tight loop.
+                let held = FileLedgerStore::open(&path).unwrap();
+                let mut last_len = 0u64;
+                while !done.load(Ordering::SeqCst) {
+                    held.tip()
+                        .unwrap_or_else(|e| panic!("reader {r}: tip: {e}"));
+                    let len = held.len();
+                    assert!(len >= last_len, "reader {r}: len went backwards");
+                    last_len = len;
+
+                    let fresh = FileLedgerStore::open(&path)
+                        .unwrap_or_else(|e| panic!("reader {r}: open: {e}"));
+                    let mut expected = 0u64;
+                    for item in fresh.iter() {
+                        let rec = item.unwrap_or_else(|e| panic!("reader {r}: iter: {e}"));
+                        assert_eq!(rec.index, expected, "reader {r}: iter out of order");
+                        expected += 1;
+                    }
+                    if expected > 0 {
+                        assert!(fresh.get(expected - 1).unwrap().is_some());
+                    }
+                    let report =
+                        verify(&path).unwrap_or_else(|e| panic!("reader {r}: verify: {e}"));
+                    assert!(
+                        report.intact,
+                        "reader {r}: verify during writes: {report:?}"
+                    );
+                    reads.fetch_add(1, Ordering::Relaxed);
+                }
+            })
+        })
+        .collect();
+
+    let mut children: Vec<_> = (0..WRITERS)
+        .map(|w| spawn_writer(&path, w, PER_WRITER))
+        .collect();
+    let mut failed = Vec::new();
+    for (w, c) in children.iter_mut().enumerate() {
+        if !c.wait().unwrap().success() {
+            failed.push(w);
+        }
+    }
+    done.store(true, Ordering::SeqCst);
+    for r in readers {
+        r.join().expect("reader thread panicked");
+    }
+    assert!(failed.is_empty(), "writer processes failed: {failed:?}");
+    assert!(reads.load(Ordering::Relaxed) > 0, "readers never ran");
+
+    let report = verify(&path).unwrap();
+    assert!(report.intact, "{report:?}");
+    assert_eq!(report.records, (WRITERS * PER_WRITER) as u64);
+    let store = FileLedgerStore::open(&path).unwrap();
+    let mut ids: Vec<String> = store.iter().map(|r| r.unwrap().call_id).collect();
+    ids.sort();
+    ids.dedup();
+    assert_eq!(ids.len(), WRITERS * PER_WRITER, "every record once");
+}
+
+#[test]
+fn terminated_garbage_mid_file_is_still_corruption() {
+    // The in-progress rule must not weaken tamper detection: a complete
+    // (newline-terminated) line that does not parse, followed by records,
+    // is a hard error on open and a break at its index in verify.
+    let dir = TempDir::new();
+    let path = populated::<FileBackend>(&dir);
+    let text = std::fs::read_to_string(&path).unwrap();
+    let mut lines: Vec<String> = text.lines().map(str::to_string).collect();
+    let half = lines[1].len() / 2;
+    lines[1].truncate(half);
+    std::fs::write(&path, lines.join("\n") + "\n").unwrap();
+    let err = FileLedgerStore::open(&path).expect_err("open must fail");
+    assert!(err.to_string().contains("mid-file corruption"), "{err}");
+    let report = verify(&path).unwrap();
+    assert_eq!((report.intact, report.broken_at), (false, Some(1)));
+}
+
+#[test]
+fn unterminated_partial_tail_is_invisible_to_every_reader() {
+    // Exactly what a concurrent reader can observe mid-append: a prefix of
+    // the next record with no newline. tip/iter/get/verify see the
+    // committed records only, and none reports corruption.
+    let dir = TempDir::new();
+    let path = populated::<FileBackend>(&dir);
+    let held = FileLedgerStore::open(&path).unwrap();
+    let mut next = held.tip().unwrap().unwrap();
+    next.index = 3;
+    next.prev_hash = next.record_hash.clone();
+    next.record_hash = next.compute_hash().unwrap();
+    let line = serde_json::to_string(&next).unwrap();
+    let committed = std::fs::read(&path).unwrap();
+    for cut in [1, line.len() / 3, line.len() - 1] {
+        let mut bytes = committed.clone();
+        bytes.extend_from_slice(&line.as_bytes()[..cut]);
+        std::fs::write(&path, &bytes).unwrap();
+        assert_eq!(held.tip().unwrap().unwrap().index, 2, "cut {cut}");
+        assert_eq!(
+            held.iter()
+                .filter(|r| r.as_ref().unwrap().index < 3)
+                .count(),
+            3
+        );
+        assert!(held.get(3).unwrap().is_none());
+        let report = verify(&path).unwrap();
+        assert!(report.intact, "cut {cut}: {report:?}");
+        assert_eq!(report.records, 3);
+        std::fs::write(&path, &committed).unwrap();
+    }
+    // The whole line minus its newline is a complete record.
+    let mut bytes = committed.clone();
+    bytes.extend_from_slice(line.as_bytes());
+    std::fs::write(&path, &bytes).unwrap();
+    assert_eq!(held.tip().unwrap().unwrap().index, 3);
+    assert_eq!(verify(&path).unwrap().records, 4);
+}

@@ -54,7 +54,11 @@ from .types import (
     parse_decision,
 )
 
-AskMode = Literal["deny", "defer"]
+AskMode = Literal["deny", "defer", "ui"]
+
+#: Response timeout when ``ask="ui"`` and none is given: longer than the
+#: console's default approval window (120 s), since `decide` waits for it.
+UI_ASK_TIMEOUT = 180.0
 
 _STDERR_TAIL_LINES = 40
 _LIVE_CLIENTS: "weakref.WeakSet[WritClient]" = weakref.WeakSet()
@@ -292,8 +296,11 @@ class WritClient:
         policy: ``--policy`` path (default: writ's own default, ``./writ.yaml``).
         ledger: ``--ledger`` path (default: writ's own default).
         ask: ``--ask`` mode. ``"deny"`` (default) fails every ask closed;
-            ``"defer"`` returns asks for an approver to resolve.
-        timeout: seconds to wait for each response.
+            ``"defer"`` returns asks for an approver to resolve; ``"ui"``
+            waits for a human decision on the ``writ ui`` Approvals screen
+            (no console, a denial or a timeout all deny).
+        timeout: seconds to wait for each response (default 30; 180 with
+            ``ask="ui"``, where a ``decide`` waits for the console).
         command: argv prefix that replaces the binary lookup entirely
             (e.g. ``["python", "fake_writ.py"]``). Flags are appended.
         cwd, env: working directory and environment for the child.
@@ -308,15 +315,17 @@ class WritClient:
         policy: str | os.PathLike[str] | None = None,
         ledger: str | os.PathLike[str] | None = None,
         ask: AskMode = "deny",
-        timeout: float = 30.0,
+        timeout: float | None = None,
         command: Sequence[str] | None = None,
         cwd: str | os.PathLike[str] | None = None,
         env: Mapping[str, str] | None = None,
         max_restarts: int = 3,
         restart_window: float = 60.0,
     ) -> None:
-        if ask not in ("deny", "defer"):
-            raise ValueError("ask must be 'deny' or 'defer'")
+        if ask not in ("deny", "defer", "ui"):
+            raise ValueError("ask must be 'deny', 'defer' or 'ui'")
+        if timeout is None:
+            timeout = UI_ASK_TIMEOUT if ask == "ui" else 30.0
         if timeout <= 0:
             raise ValueError("timeout must be positive")
         self.ask: AskMode = ask

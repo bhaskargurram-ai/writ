@@ -14,7 +14,7 @@ import {
 } from "./protocol.js";
 
 /** What `writ check` does with an `ask` verdict. */
-export type AskMode = "deny" | "defer";
+export type AskMode = "deny" | "defer" | "ui";
 
 export interface WritClientOptions {
   /** Path to the writ binary. Default: `WRIT_BIN`, then `writ` on PATH. A `.js`/`.mjs`/`.cjs` path runs under Node. */
@@ -30,11 +30,16 @@ export interface WritClientOptions {
   /** `--ledger` (default: writ's own default, `.writ/ledger.jsonl`). */
   ledger?: string;
   /**
-   * `--ask deny` (default, fail closed) or `--ask defer`, which hands the
-   * decision to an `approver` callback or the agent's own UI.
+   * `--ask deny` (default, fail closed); `--ask defer`, which hands the
+   * decision to an `approver` callback or the agent's own UI; or `--ask ui`,
+   * where `decide` waits for a human on the `writ ui` Approvals screen (no
+   * console, a denial or a timeout all deny).
    */
   ask?: AskMode;
-  /** Per-request timeout in ms (default 30000). A timeout kills the gateway and fails closed. */
+  /**
+   * Per-request timeout in ms (default 30000; 180000 with `ask: "ui"`, where a
+   * `decide` waits for the console). A timeout kills the gateway and fails closed.
+   */
   timeoutMs?: number;
   /** Default caller identity for calls that do not set one. */
   caller?: CallerIdentity;
@@ -114,10 +119,10 @@ export class WritClient implements AsyncDisposable {
   constructor(options: WritClientOptions = {}) {
     this.options = options;
     this.askMode = options.ask ?? "deny";
-    if (this.askMode !== "deny" && this.askMode !== "defer") {
-      throw new WritError("bad_option", `ask must be "deny" or "defer", got ${String(options.ask)}`);
+    if (this.askMode !== "deny" && this.askMode !== "defer" && this.askMode !== "ui") {
+      throw new WritError("bad_option", `ask must be "deny", "defer" or "ui", got ${String(options.ask)}`);
     }
-    this.timeoutMs = options.timeoutMs ?? 30_000;
+    this.timeoutMs = options.timeoutMs ?? (this.askMode === "ui" ? 180_000 : 30_000);
     this.maxLineBytes = options.maxLineBytes ?? 16 * 1024 * 1024;
     this.sessionId = options.sessionId ?? randomUUID();
     this.caller = options.caller;

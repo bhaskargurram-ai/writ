@@ -654,15 +654,14 @@ pub fn ledger_tamper(jsonl: &str, index: u32, mode: &str) -> String {
         Ok(r) => r,
         Err(e) => return err(format!("record {index}: {e}")),
     };
-    let what;
-    match (&rec.verdict, rec.kind) {
+    let what = match (&rec.verdict, rec.kind) {
         (Some(Verdict::Allow { .. }), _) => {
             if let Some(call) = rec.call.as_mut() {
                 if let Some(m) = call.args.as_object_mut() {
                     m.insert("note".into(), json!("edited after the fact"));
                 }
             }
-            what = format!("added an argument to the allowed call in record {index}");
+            format!("added an argument to the allowed call in record {index}")
         }
         (Some(v), _) => {
             let rule = v.rule_id().map(str::to_string);
@@ -670,17 +669,17 @@ pub fn ledger_tamper(jsonl: &str, index: u32, mode: &str) -> String {
                 rule_id: rule.clone(),
             });
             rec.rule_id = rule;
-            what = format!("rewrote record {index}'s verdict to allow");
+            format!("rewrote record {index}'s verdict to allow")
         }
         (None, RecordKind::Execution) => {
             rec.exit_status = Some(if rec.exit_status == Some(0) { 1 } else { 0 });
-            what = format!("flipped the exit status in record {index}");
+            format!("flipped the exit status in record {index}")
         }
         (None, RecordKind::Decision) => {
             rec.session_id.push_str("-edited");
-            what = format!("edited the session id in record {index}");
+            format!("edited the session id in record {index}")
         }
-    }
+    };
     let what = if mode == "edit-rehash" {
         match rec.compute_hash() {
             Ok(h) => rec.record_hash = h,

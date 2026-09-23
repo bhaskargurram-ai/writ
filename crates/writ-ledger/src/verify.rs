@@ -30,6 +30,10 @@ pub fn verify(path: impl AsRef<Path>) -> Result<VerifyReport> {
         StoreKind::Sqlite => crate::sqlite::verify_sqlite(path),
         #[cfg(not(feature = "sqlite"))]
         StoreKind::Sqlite => Err(crate::store::sqlite_unavailable(path)),
+        #[cfg(feature = "postgres")]
+        StoreKind::Postgres => crate::postgres::verify_postgres(crate::store::postgres_url(path)),
+        #[cfg(not(feature = "postgres"))]
+        StoreKind::Postgres => Err(crate::store::postgres_unavailable(path)),
     }
 }
 
