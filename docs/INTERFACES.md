@@ -31,7 +31,7 @@ Frozen. Additive-only changes under bumped `schema_version`. `writ verify` valid
 - Two-phase records: exactly one `Decision` record per intercepted call (even if execution never starts); one linked `Execution` record per dispatched call (`decision_index` links back). Records are never mutated.
 - `record_hash` = SHA-256 over the canonical payload (all fields except `record_hash`, serde_json struct order). `prev_hash` chains records; genesis = 64 zero hex chars.
 - `LedgerStore`: `append / tip / get / len / iter`. `append` must reject a non-sequential index, a wrong `prev_hash`, or a `record_hash` that is not the record's own.
-- Stores: `FileLedgerStore` (JSONL, default, everywhere) and `SqliteLedgerStore` (WAL mode, `sqlite` feature); Postgres+S3 in Wave 3. All pass the same generic test suite and `verify_chain`. A SQLite row holds the exact JSONL line, so records and hashes are store-independent.
+- Stores: `FileLedgerStore` (JSONL, default, everywhere; many concurrent writer processes via a `<ledger>.lock` file lock), `SqliteLedgerStore` (WAL, `sqlite` feature) and `PostgresLedgerStore` (`postgres` feature; `postgres://` / `postgresql://` locations; many hosts append one chain under a row lock; see [ledger-postgres.md](ledger-postgres.md)). All pass the same generic test suite and `verify_chain`. Every row holds the exact JSONL line, so records and hashes are store-independent. Locations are shown with `display_ledger`, which redacts a Postgres password; the CLI refuses to write a password into agent hook configuration or a `writ run` hook command line.
 - Store selection: `writ_ledger::open_store(path)` / `detect_store_kind(path)` — content first (SQLite header), then extension (`.db`, `.sqlite`, `.sqlite3`), failing closed on a mismatch or when the `sqlite` feature is off. `verify(path)`, `sessions(path)` and `find_by_call_id(path)` use it; `verify_sqlite(path)` checks a database too damaged to open as a store.
 - No content capture beyond call args by default; zero product telemetry.
 
@@ -201,10 +201,44 @@ Claude Code specifics (verified against https://code.claude.com/docs/en/hooks):
   `--policy P --ledger L check --format claude-code --ask defer`) for
   `PreToolUse`, `PostToolUse` and `PostToolUseFailure`, matcher `*`.
 
+**`--format codex|gemini|cursor|windsurf`** (`crates/writ-cli/src/hook/agents.rs`;
+per-agent detail in [integrations/](integrations/)). Same ledger semantics as
+claude-code: one Decision per pre event, one Execution per post event. Post
+events correlate by the agent's tool-call id (Codex, Cursor `tool_use_id`),
+otherwise by (session, tool, server, args), newest decision without an
+execution (Gemini, Cursor MCP, Windsurf). When one call names several paths or
+URLs, each is evaluated and the strictest verdict is recorded (the choice as
+`path`/`url`, the full list as `paths`/`urls`). Every writ-side error returns
+that agent's blocking answer; nothing exits 1.
+
+- Codex (PreToolUse/PostToolUse): always exit 0; deny = `hookSpecificOutput.permissionDecision:"deny"` + stderr; allow prints nothing; `ask` fails closed (Codex has none); redact and every post error use `{"decision":"block","reason":…}`.
+- Gemini (BeforeTool/AfterTool): deny = `{"decision":"deny"}` + exit 2; `--ask defer` → `{"decision":"ask"}` (approver `tui/gemini-cli-prompt`); redact via AfterTool `decision:"deny"` with the masked content as the reason.
+- Cursor (preToolUse, beforeMCPExecution, postToolUse, postToolUseFailure; `failClosed:true`): deny = `permission:"deny"` + exit 0; MCP calls decided at beforeMCPExecution, where `ask` → `permission:"ask"` (approver `tui/cursor-prompt`); redact only for MCP (`updated_mcp_tool_output`), denied at pre for other tools.
+- Windsurf (pre_/post_ run_command, read_code, write_code, mcp_tool_use): deny = exit 2 + stderr; ask and redact are denied.
+- Outside writ's control: a missing binary or a hook timeout lets the tool run in Codex, Gemini and Windsurf (Cursor blocks via `failClosed`).
+- `writ integrate codex|gemini|cursor|windsurf` writes `.codex/config.toml` (toml_edit, comments kept), `.gemini/settings.json`, `.cursor/hooks.json`, `.devin/hooks.json` (or legacy `.windsurf/hooks.json`) with the same guarantees as claude-code.
+
+**`--ask ui`** (detail: [ui.md](ui.md#writ-check---ask-ui)). An `ask` waits for a
+human on the `writ ui` Approvals screen: the Decision record is written first
+(no approver), a pending request is queued, and the gateway polls for the
+console's answer until the rule's `timeout` (default 120 s; capped at 55 s
+for claude-code and Cursor, whose hook timeouts would otherwise not block).
+Approval returns a final `allow` and the Execution record names
+`{tui, "web-console:<user>"}`; a denial, timeout, no live console, or a
+Postgres ledger (no local queue) is a `deny`. Console state lives in a
+per-user directory outside every `writ run` writable path, so a confined agent
+cannot approve its own asks. Supported by `--format writ`, claude-code, gemini
+and cursor (MCP); the other formats deny. The Python and TypeScript SDKs take
+`ask="ui"` and wait up to 180 s per `decide`.
+
+## Contract 7 — Receipts (`writ_receipts`)
+
+Specified in full in [receipts.md](receipts.md#contract-7--receipts-writ_receipts). A receipt (`writ.receipt/v1`) is an Ed25519ph signature over a canonical, domain-separated text rendering of a ledger checkpoint: ledger id (record 0's hash), record count, tip index and hash, an RFC 6962 Merkle root over record hashes, optional session scope, and `created_at`. `writ receipt verify` fails if any record at or before the checkpoint was edited, removed or rewritten, or the ledger was truncated; records appended later are allowed. Inclusion proofs (`writ.inclusion-proof/v1`) prove one call's records against a signed root without the ledger. Anchors sit outside the signature and carry their own proof: Sigstore Rekor `hashedrekord` entries (verified offline against a pinned log key) or an append-only file line.
+
 ## Pipeline (`writ_core::pipeline`)
 
 `handle_call(call, policy, ledger, approver) -> DecisionOutcome` — evaluate → resolve ask via approver → write decision record → return. Dispatch (sandbox exec / MCP forwarding) happens in the caller AFTER `handle_call` returns and only when `outcome.should_dispatch()`. Execution completion → `record_execution(ledger, &decision_record, backend, exit, output)`.
 
 ## CLI surface (`writ-cli`)
 
-`writ run [--yolo] [--policy PATH] [--net open|none] [--allow-write PATH]… [--unconfined] [--no-hooks] -- <agent cmd>` · `writ check [--stdio] [--format writ|claude-code] [--ask deny|defer]` · `writ integrate <claude-code>` · `writ proxy --mcp` · `writ log` · `writ show <call-id>` · `writ verify [--ledger PATH]` · `writ replay <run-id>` · `writ policy test` · `writ policy add <pack>` · `writ doctor` · `writ report`. Ledger default path: `.writ/ledger.jsonl` (displayed as `ledger.db` once SQLite is enabled).
+`writ run [--yolo] [--policy PATH] [--net open|none] [--allow-write PATH]… [--unconfined] [--no-hooks] -- <agent cmd>` · `writ check [--stdio] [--format writ|claude-code|codex|gemini|cursor|windsurf] [--ask deny|defer|ui]` · `writ integrate <claude-code|codex|gemini|cursor|windsurf>` · `writ ui [--port N] [--no-open]` · `writ receipt keygen|create|verify|prove|anchor` · `writ proxy --mcp [--transport stdio|http --listen ADDR --upstream URL]` · `writ log` · `writ show <call-id>` · `writ verify [--ledger PATH]` · `writ replay <run-id>` · `writ policy test` · `writ policy add <pack>` · `writ doctor` · `writ report`. Ledger default path: `.writ/ledger.jsonl` (displayed as `ledger.db` once SQLite is enabled).

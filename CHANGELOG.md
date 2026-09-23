@@ -8,6 +8,34 @@ The ledger record schema is versioned separately (`schema_version`, see
 
 ## [Unreleased]
 
+### Added
+
+- **`writ ui`**, a local web console: connect an agent (snippets with your
+  paths, live "connected" signal), a live decision feed with full record
+  detail and chain verification, an Approvals screen for `writ check --ask ui`,
+  a policy editor with a "try a tool call" tester, and a sandbox screen that
+  runs commands in the kernel boundary and shows escape attempts failing.
+  Loopback-only, token-gated, strict CSP, no external requests.
+- **More agents**: `writ check --format codex|gemini|cursor|windsurf`,
+  `writ integrate` for each, and `writ run` hook injection for Codex, Gemini
+  CLI and Cursor's `agent`. Every writ-side error returns that agent's
+  blocking answer.
+- **Signed receipts** (`writ receipt keygen|create|verify|prove|anchor`):
+  Ed25519ph over a ledger checkpoint with an RFC 6962 Merkle root, per-call
+  inclusion proofs, and anchoring in the Sigstore Rekor public log (verified
+  offline against a pinned log key) or an append-only file.
+- **Postgres ledger store** (`postgres` feature): many hosts append one
+  chain under a row lock; append-only triggers; TLS via rustls with libpq
+  `sslmode` semantics.
+- **MCP proxy over Streamable HTTP / SSE** (`writ proxy --transport http`).
+- **Browser playground** on the website: the real engine as WebAssembly.
+- `--ask ui` in the Python and TypeScript SDKs.
+
+### Security
+
+- A Postgres ledger URL is never printed with its password, and never written
+  into agent hook configuration or a `writ run` hook command line.
+
 ## [0.1.1] — 2026-09-23
 
 ### Added
@@ -28,8 +56,6 @@ The ledger record schema is versioned separately (`schema_version`, see
 First published SDKs (`writ-sdk`, `@writ-agent/sdk`); they required building
 the `writ` binary from source. Everything listed below under "Added",
 "Changed" and "Fixed" shipped on `main` by this point.
-
-Nothing has been tagged yet; everything below is on `main`.
 
 ### Added
 
