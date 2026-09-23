@@ -2,6 +2,15 @@
 
 Thanks for helping build the authorization and provenance layer for AI agents.
 
+## Where to start
+
+- The [roadmap](https://github.com/writ-agent/writ/issues/9) is pinned in Issues.
+- Issues labelled [`good first issue`](https://github.com/writ-agent/writ/labels/good%20first%20issue) are scoped for a first PR; [`help wanted`](https://github.com/writ-agent/writ/labels/help%20wanted) ones are bigger.
+- A new **policy pack** is the most valuable small contribution (see below).
+- Questions and ideas go to [Discussions](https://github.com/writ-agent/writ/discussions), not issues.
+- `main` is protected: open a PR; CI must pass, and changes under the security
+  paths in `.github/CODEOWNERS` need a code-owner review.
+
 ## Ground rules
 
 1. **DCO, not CLA.** Sign off every commit: `git commit -s`

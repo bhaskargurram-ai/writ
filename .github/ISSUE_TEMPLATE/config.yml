@@ -1,5 +1,8 @@
 blank_issues_enabled: false
 contact_links:
+  - name: Questions and ideas
+    url: https://github.com/writ-agent/writ/discussions
+    about: Ask in Discussions (Q&A, Ideas, Show and tell).
   - name: Security vulnerability
     url: https://github.com/writ-agent/writ/security/advisories/new
     about: Private reporting only — never a public issue. See docs/SECURITY.md.

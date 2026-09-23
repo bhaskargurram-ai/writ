@@ -1,0 +1,33 @@
+name: Policy pack proposal
+description: Propose a pack that teaches writ a new stack (cloud CLI, database, MCP server, …)
+labels: [policy-pack, needs-triage]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Packs are the easiest high-value contribution. Look at `packs/terraform-safety` for the shape, then open a PR — this form is for discussing scope first.
+  - type: input
+    id: stack
+    attributes:
+      label: Stack or tool
+      placeholder: e.g. Stripe API via MCP, Pulumi, Helm
+    validations:
+      required: true
+  - type: textarea
+    id: threats
+    attributes:
+      label: What should the pack stop or gate?
+      description: The destructive, irreversible or data-leaking calls an agent could make, and which verdict each deserves (deny / ask / redact).
+    validations:
+      required: true
+  - type: textarea
+    id: allow
+    attributes:
+      label: What must keep working?
+      description: The safe, everyday calls the pack must not block (these become negative fixtures).
+  - type: checkboxes
+    id: willing
+    attributes:
+      label: Contribution
+      options:
+        - label: I'd like to write this pack (pack.yaml + fixtures + README)
