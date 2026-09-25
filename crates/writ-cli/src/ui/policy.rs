@@ -294,11 +294,7 @@ mod tests {
             assert!(pk["rule_count"].as_u64().unwrap() > 0);
             // What the editor inserts under `rules:` must compile as-is.
             let rules = pk["rules"].as_str().unwrap();
-            let policy = format!("version: 1
-default: ask
-rules:
-{rules}
-");
+            let policy = format!("version: 1\ndefault: ask\nrules:\n{rules}\n");
             if let Err(e) = writ_policy::NativePolicyEngine::from_source(&policy) {
                 panic!("pack {} snippet does not compile: {e}", pk["name"]);
             }
