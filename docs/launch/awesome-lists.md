@@ -28,10 +28,15 @@ One-line PRs, each in the list's own format and section, disclosed as prepared w
 |---|---|
 | ottosulin/awesome-ai-security — Agent Runtime Security & Sandboxing | [#473](https://github.com/ottosulin/awesome-ai-security/pull/473) |
 | punkpeye/awesome-mcp-servers — Security | [#14958](https://github.com/punkpeye/awesome-mcp-servers/pull/14958) |
-| TensorBlock/awesome-mcp-servers — docs/security.md | [#2620](https://github.com/TensorBlock/awesome-mcp-servers/pull/2620) |
+| TensorBlock/awesome-mcp-servers — docs/security.md | [#2620](https://github.com/TensorBlock/awesome-mcp-servers/pull/2620) — **merged** |
 | corca-ai/awesome-llm-security — Tools | [#357](https://github.com/corca-ai/awesome-llm-security/pull/357) |
 | tensorchord/Awesome-LLMOps — Frameworks for LLM security | [#855](https://github.com/tensorchord/Awesome-LLMOps/pull/855) |
 | ElNiak/awesome-ai-cybersecurity — Safety and Prevention | [#21](https://github.com/ElNiak/awesome-ai-cybersecurity/pull/21) |
+| webcoyote/awesome-AI-sandbox — Policy, approvals, and audit layers | [#6](https://github.com/webcoyote/awesome-AI-sandbox/pull/6) |
+| systempromptio/awesome-ai-agent-governance — Claude Code and MCP Governance | [#102](https://github.com/systempromptio/awesome-ai-agent-governance/pull/102) |
+| vonzosten/awesome-LangGraph — Security & Governance | [#114](https://github.com/vonzosten/awesome-LangGraph/pull/114) |
+
+punkpeye/awesome-mcp-servers asks for a glama.ai listing with a passing check badge (the owner submits at https://glama.ai/mcp/servers; writ is a proxy in front of servers, so check whether Glama's start-and-introspect check applies).
 
 Waiting on eligibility: awesome-claude-code (14 days of history, ≈ Oct 5; web issue form only), awesome-langchain (auto-closes brand-new repos), awesome-rust (50+ stars).
 
