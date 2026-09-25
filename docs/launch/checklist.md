@@ -5,24 +5,22 @@ day's delay.
 
 ## T-3 days: blockers
 
-- [ ] **Ship a release that matches the README.** The published 0.1.1
-      (`pip install writ-cli`, `npm i -g @writ-agent/cli`) has **no**
-      `writ ui`, `writ receipt`, `--ask ui`, MCP over HTTP, Postgres, or the
-      Codex / Gemini / Cursor / Windsurf targets for `writ integrate`; those
-      are on `main` (CHANGELOG "Unreleased"). Either tag the next release
-      and wait for PyPI, npm and the GitHub Release to publish, or cut those
-      features from every launch post. Every post in `docs/launch/`
-      assumes the new release.
+- [x] **Ship a release that matches the README.** Done: **0.1.2** is on
+      PyPI (`writ-cli`, `writ-sdk`), npm (`@writ-agent/cli`,
+      `@writ-agent/sdk`) and GitHub Releases, with every feature the posts
+      describe. Verified from clean installs on Windows and Linux (pip and
+      npm): `writ ui`, `writ receipt` round trip, all five
+      `writ integrate` targets, bundled `writ policy add`.
 - [ ] In a clean VM for each OS (Linux, macOS, Windows), from the published
       packages only:
       `pip install writ-cli` → `writ --version` → `writ integrate claude-code`
       → one Claude Code session → `writ log` → `writ verify` → `writ ui`.
-- [ ] Run `examples/attack-demo/run.sh` (Linux/macOS) and `run.ps1`
+- [x] Run `examples/attack-demo/run.sh` (Linux/macOS) and `run.ps1`
       (Windows) against the **published** binary. The expected output is in
       `examples/attack-demo/README.md`. If writ's output changed, update
       the lines in `scripts/gen_attack_svg.py`, re-run it, and re-render
       `docs/launch/demo-attack.png`.
-- [ ] `python scripts/claim_lint.py` is clean; CI is green on `main`.
+- [x] `python scripts/claim_lint.py` is clean; CI is green on `main`.
 - [ ] The repo is public; the README renders `demo-attack.svg` (check it on
       GitHub, in light and dark themes); the site and playground load.
 - [ ] Decide what to do about the crates.io name collision: `writ-cli` on

@@ -38,29 +38,28 @@ becomes tool `<tool>` on `server`. Details: `adapters/README.md` and
 
 ---
 
-## 1. Pack: `terraform-cloud` (OpenTofu, Terragrunt, Terraform Cloud)
+## 1. Pack: `terraform-cloud` (Terragrunt, Terraform Cloud / HCP)
 
-**Why.** `terraform-safety` only matches `terraform destroy`,
-`apply -auto-approve`, `state rm` and `force-unlock` as plain substrings. It
-misses OpenTofu (`tofu`), Terragrunt (`terragrunt run-all destroy`), flags
-before the subcommand (`terraform -chdir=infra destroy`), and Terraform
-Cloud / HCP runs started from the CLI or API.
+**Why.** `terraform-safety` (0.2.0) covers `terraform`/`tofu` destroy
+(including `apply -destroy` and global flags such as `-chdir`),
+`apply -auto-approve`, `state rm` and `force-unlock`. It does not cover
+Terragrunt, Terraform Cloud / HCP runs, or several other state-changing
+subcommands.
 
 **Scope.**
-- `tofu` and `terragrunt` equivalents of the existing four rules, including
-  `run-all destroy` / `run-all apply` with `--terragrunt-non-interactive`.
-- `-chdir=…` and other global flags between the binary and the subcommand.
-- `terraform workspace delete`, `terraform apply -destroy`,
-  `terraform import`/`state mv`/`state push` (ask).
+- Terragrunt: `run-all destroy` / `run-all apply` (especially with
+  `--terragrunt-non-interactive`), `destroy`, `apply -auto-approve`.
+- `terraform workspace delete`, `terraform import`, `state mv`, `state push`
+  (ask).
 - `tfe`/`hcp` CLI or `curl … app.terraform.io/api/v2/…` run applies and
   workspace deletes (ask).
 
-**Acceptance.** The shared criteria, plus fixtures for `tofu destroy`,
-`terragrunt run-all destroy`, `terraform -chdir=infra destroy`, and near
-misses such as `terraform plan -destroy` (a plan, not a destroy).
+**Acceptance.** The shared criteria, plus fixtures for
+`terragrunt run-all destroy`, a Terraform Cloud run apply, and near misses
+such as `terraform plan -destroy` (a plan, not a destroy).
 
-**Copy from.** `packs/aws-safety` for the `binary [flags] subcommand` regex
-shape; `packs/terraform-safety` for the reasons.
+**Copy from.** `packs/terraform-safety` for the `binary [flags] subcommand`
+regex shape and the reasons.
 
 ## 2. Pack: `pulumi`
 
