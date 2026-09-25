@@ -42,7 +42,9 @@ fn keygen_writes_pem_pair_and_refuses_overwrite() {
     }
     #[cfg(windows)]
     {
-        // Inherited ACEs removed; only the current user is granted access.
+        // Inherited ACEs removed; the current user has full control, and
+        // nobody beyond the user, SYSTEM and Administrators (the set OpenSSH
+        // accepts for private keys) has any access.
         let o = std::process::Command::new("icacls")
             .arg(&key)
             .output()
@@ -51,7 +53,9 @@ fn keygen_writes_pem_pair_and_refuses_overwrite() {
         let user = std::env::var("USERNAME").unwrap();
         assert!(acl.contains(&format!("{user}:(F)")), "{acl}");
         assert!(!acl.contains("(I)"), "{acl}");
-        assert!(!acl.contains("Administrators"), "{acl}");
+        for broad in ["Everyone", "Authenticated Users", "BUILTIN\\Users"] {
+            assert!(!acl.contains(broad), "{broad} has access: {acl}");
+        }
     }
     let again = p.writ(&["receipt", "keygen", "--out", key.to_str().unwrap()]);
     assert_fails_with(&again, "already exists");

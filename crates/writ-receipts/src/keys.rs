@@ -6,8 +6,11 @@
 //! - Key id: `ed25519:` + lowercase hex SHA-256 of the 32-byte raw public key.
 //!
 //! File permissions: on Unix the private key is created `0600` with
-//! `O_EXCL`. On Windows it is created, then `icacls` removes inherited ACEs
-//! and grants full control to the current user only; if `icacls` fails the
+//! `O_EXCL`. On Windows it is created, then `icacls` removes inherited ACEs,
+//! grants full control to the current user, and removes the broad groups
+//! (Everyone, Authenticated Users, Users). SYSTEM and Administrators entries
+//! the OS may add explicitly are left, as OpenSSH accepts for private keys
+//! (both can read any file regardless); if `icacls` fails the
 //! key is still written and [`write_keypair`] reports the failure so the
 //! caller can warn.
 
@@ -153,6 +156,8 @@ fn restrict_to_owner(path: &Path) -> std::result::Result<(), String> {
         .arg("/inheritance:r")
         .arg("/grant:r")
         .arg(format!("{user}:F"))
+        // Everyone, Authenticated Users, Users: never on a private key.
+        .args(["/remove:g", "*S-1-1-0", "*S-1-5-11", "*S-1-5-32-545"])
         .output()
         .map_err(|e| format!("could not run icacls to restrict the key's ACL: {e}"))?;
     if out.status.success() {
