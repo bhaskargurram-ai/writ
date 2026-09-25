@@ -1,0 +1,55 @@
+# Fixtures for packs/k8s-prod, run against the pack wrapped in
+# `version: 1` / `default: ask` (unmatched -> rule_id: default).
+
+- name: kubectl delete namespace denied
+  ctx: { tool: bash, args: { command: "kubectl delete namespace payments" } }
+  expect: { verdict: deny, rule_id: k8s-delete-ns-denied }
+
+- name: kubectl delete ns short form denied
+  ctx: { tool: bash, args: { command: "kubectl delete ns staging" } }
+  expect: { verdict: deny, rule_id: k8s-delete-ns-denied }
+
+- name: deleting a prod deployment asks
+  ctx: { tool: bash, args: { command: "kubectl delete deployment api --context prod" } }
+  expect: { verdict: ask, rule_id: k8s-prod-delete-asks }
+
+- name: rollout restart in production asks
+  ctx: { tool: bash, args: { command: "kubectl rollout restart deploy/api -n production" } }
+  expect: { verdict: ask, rule_id: k8s-prod-rollout-asks }
+
+- name: exec into a prod pod asks
+  ctx: { tool: bash, args: { command: "kubectl exec -it api-0 --context prod -- sh" } }
+  expect: { verdict: ask, rule_id: k8s-exec-prod-asks }
+
+- name: drain asks
+  ctx: { tool: bash, args: { command: "kubectl drain node-7 --ignore-daemonsets" } }
+  expect: { verdict: ask, rule_id: k8s-drain-asks }
+
+- name: deleting a dev pod falls to default
+  ctx: { tool: bash, args: { command: "kubectl delete pod api-0 --context dev" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: kubectl get pods falls to default (this pack has no allow rules)
+  ctx: { tool: bash, args: { command: "kubectl get pods -A" } }
+  expect: { verdict: ask, rule_id: default }
+
+# Global flags before the subcommand must not hide it.
+- name: context flag before delete namespace is still denied
+  ctx: { tool: bash, args: { command: "kubectl -n kube-system --context=prod delete namespace payments" } }
+  expect: { verdict: deny, rule_id: k8s-delete-ns-denied }
+
+- name: context flag before a prod delete still asks
+  ctx: { tool: bash, args: { command: "kubectl --context prod delete deployment api" } }
+  expect: { verdict: ask, rule_id: k8s-prod-delete-asks }
+
+- name: kubeconfig flag before rollout restart still asks
+  ctx: { tool: bash, args: { command: "kubectl --kubeconfig ~/.kube/prod rollout restart deploy/api" } }
+  expect: { verdict: ask, rule_id: k8s-prod-rollout-asks }
+
+- name: kubectl.exe exec into production asks
+  ctx: { tool: bash, args: { command: "kubectl.exe --context production exec -it api-0 -- sh" } }
+  expect: { verdict: ask, rule_id: k8s-exec-prod-asks }
+
+- name: reading prod pods is not a delete
+  ctx: { tool: bash, args: { command: "kubectl --context prod get pods" } }
+  expect: { verdict: ask, rule_id: default }

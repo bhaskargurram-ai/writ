@@ -1,0 +1,172 @@
+# Fixtures for packs/aws-safety. Run by scripts/validate_packs.py against the
+# pack wrapped in `version: 1` / `default: ask`, so unmatched calls expect
+# `rule_id: default`. Args are shaped like Claude Code's Bash / PowerShell
+# tool input ({command, description}); both map to writ tool `bash`.
+
+# --- deny -----------------------------------------------------------------
+- name: cloudtrail stop-logging denied
+  ctx: { tool: bash, args: { command: "aws cloudtrail stop-logging --name org-trail", description: "Pause trail" } }
+  expect: { verdict: deny, rule_id: aws-audit-logging-tamper-denied }
+
+- name: guardduty delete-detector with global flags before the service denied
+  ctx: { tool: bash, args: { command: "aws --profile prod --region us-east-1 guardduty delete-detector --detector-id abc" } }
+  expect: { verdict: deny, rule_id: aws-audit-logging-tamper-denied }
+
+- name: organizations close-account denied
+  ctx: { tool: bash, args: { command: "aws organizations close-account --account-id 111122223333" } }
+  expect: { verdict: deny, rule_id: aws-organizations-denied }
+
+- name: organizations leave-organization denied
+  ctx: { tool: bash, args: { command: "AWS_PROFILE=member aws organizations leave-organization" } }
+  expect: { verdict: deny, rule_id: aws-organizations-denied }
+
+- name: kms schedule-key-deletion denied
+  ctx: { tool: bash, args: { command: "aws kms schedule-key-deletion --key-id 1234abcd --pending-window-in-days 7" } }
+  expect: { verdict: deny, rule_id: aws-kms-key-deletion-denied }
+
+- name: PowerShell Request-KMSKeyDeletion denied
+  ctx: { tool: bash, args: { command: "Request-KMSKeyDeletion -KeyId 1234abcd -PendingWindowInDay 7" } }
+  expect: { verdict: deny, rule_id: aws-kms-key-deletion-denied }
+
+- name: s3 rb --force denied
+  ctx: { tool: bash, args: { command: "aws s3 rb s3://prod-backups --force" } }
+  expect: { verdict: deny, rule_id: aws-s3-force-remove-bucket-denied }
+
+- name: Windows aws.exe with upper-case name still denied
+  ctx: { tool: bash, args: { command: "AWS.EXE s3 rb s3://prod-backups --force" } }
+  expect: { verdict: deny, rule_id: aws-s3-force-remove-bucket-denied }
+
+- name: PowerShell Remove-S3Bucket -DeleteBucketContent denied
+  ctx: { tool: bash, args: { command: "Remove-S3Bucket -BucketName prod-backups -DeleteBucketContent -Force" } }
+  expect: { verdict: deny, rule_id: aws-s3-force-remove-bucket-denied }
+
+- name: rds delete with --skip-final-snapshot denied
+  ctx: { tool: bash, args: { command: "aws rds delete-db-instance --db-instance-identifier prod-db --skip-final-snapshot" } }
+  expect: { verdict: deny, rule_id: aws-rds-delete-without-snapshot-denied }
+
+# --- ask ------------------------------------------------------------------
+- name: iam delete-user asks
+  ctx: { tool: bash, args: { command: "aws iam delete-user --user-name ci-bot" } }
+  expect: { verdict: ask, rule_id: aws-iam-delete-asks }
+
+- name: iam detach-role-policy after cd && asks
+  ctx: { tool: bash, args: { command: "cd infra && aws iam detach-role-policy --role-name app --policy-arn arn:aws:iam::aws:policy/ReadOnlyAccess" } }
+  expect: { verdict: ask, rule_id: aws-iam-delete-asks }
+
+- name: iam put-role-policy asks (privilege change)
+  ctx: { tool: bash, args: { command: "aws iam put-role-policy --role-name app --policy-name admin --policy-document file://admin.json" } }
+  expect: { verdict: ask, rule_id: aws-iam-privilege-change-asks }
+
+- name: iam create-access-key asks
+  ctx: { tool: bash, args: { command: "aws iam create-access-key --user-name deploy" } }
+  expect: { verdict: ask, rule_id: aws-iam-privilege-change-asks }
+
+- name: s3 rm --recursive asks
+  ctx: { tool: bash, args: { command: "aws s3 rm s3://data-lake/raw/ --recursive" } }
+  expect: { verdict: ask, rule_id: aws-s3-delete-asks }
+
+- name: s3 sync --delete asks
+  ctx: { tool: bash, args: { command: "aws s3 sync ./dist s3://www.example.com --delete" } }
+  expect: { verdict: ask, rule_id: aws-s3-delete-asks }
+
+- name: s3api delete-objects asks
+  ctx: { tool: bash, args: { command: "aws s3api delete-objects --bucket b --delete file://keys.json" } }
+  expect: { verdict: ask, rule_id: aws-s3-delete-asks }
+
+- name: delete-public-access-block asks
+  ctx: { tool: bash, args: { command: "aws s3api delete-public-access-block --bucket customer-exports" } }
+  expect: { verdict: ask, rule_id: aws-s3-exposure-asks }
+
+- name: ec2 terminate-instances asks
+  ctx: { tool: bash, args: { command: "aws ec2 terminate-instances --instance-ids i-0abc123 i-0def456" } }
+  expect: { verdict: ask, rule_id: aws-ec2-terminate-asks }
+
+- name: ec2 terminate with its arguments on a continuation line asks
+  ctx: { tool: bash, args: { command: "aws ec2 terminate-instances \\\n  --instance-ids i-0abc123" } }
+  expect: { verdict: ask, rule_id: aws-ec2-terminate-asks }
+
+- name: PowerShell Remove-EC2Instance asks
+  ctx: { tool: bash, args: { command: "Remove-EC2Instance -InstanceId i-0abc123 -Force" } }
+  expect: { verdict: ask, rule_id: aws-ec2-terminate-asks }
+
+- name: rds delete-db-cluster (with final snapshot) asks
+  ctx: { tool: bash, args: { command: "aws rds delete-db-cluster --db-cluster-identifier prod --final-db-snapshot-identifier prod-final" } }
+  expect: { verdict: ask, rule_id: aws-rds-delete-asks }
+
+- name: cloudformation delete-stack asks
+  ctx: { tool: bash, args: { command: "aws cloudformation delete-stack --stack-name prod-network" } }
+  expect: { verdict: ask, rule_id: aws-stack-teardown-asks }
+
+- name: npx cdk destroy asks
+  ctx: { tool: bash, args: { command: "npx cdk destroy --all --force" } }
+  expect: { verdict: ask, rule_id: aws-stack-teardown-asks }
+
+- name: secretsmanager get-secret-value asks
+  ctx: { tool: bash, args: { command: "aws secretsmanager get-secret-value --secret-id prod/db --query SecretString --output text" } }
+  expect: { verdict: ask, rule_id: aws-secret-read-asks }
+
+- name: ssm get-parameter --with-decryption asks
+  ctx: { tool: bash, args: { command: "aws ssm get-parameter --name /prod/api-key --with-decryption" } }
+  expect: { verdict: ask, rule_id: aws-secret-read-asks }
+
+- name: ecr get-login-password piped to docker login asks
+  ctx: { tool: bash, args: { command: "aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 1111.dkr.ecr.us-east-1.amazonaws.com" } }
+  expect: { verdict: ask, rule_id: aws-secret-read-asks }
+
+- name: lambda get-function-configuration (env vars) asks
+  ctx: { tool: bash, args: { command: "aws lambda get-function-configuration --function-name api" } }
+  expect: { verdict: ask, rule_id: aws-secret-read-asks }
+
+- name: PowerShell Remove-IAMUser asks
+  ctx: { tool: bash, args: { command: "Remove-IAMUser -UserName ci-bot -Force" } }
+  expect: { verdict: ask, rule_id: aws-powershell-remove-asks }
+
+- name: dynamodb delete-table hits the catch-all
+  ctx: { tool: bash, args: { command: "aws dynamodb delete-table --table-name orders" } }
+  expect: { verdict: ask, rule_id: aws-destructive-verb-asks }
+
+- name: route53 delete-hosted-zone hits the catch-all
+  ctx: { tool: bash, args: { command: "aws route53 delete-hosted-zone --id Z123" } }
+  expect: { verdict: ask, rule_id: aws-destructive-verb-asks }
+
+# --- allow ----------------------------------------------------------------
+- name: ec2 describe-instances allowed
+  ctx: { tool: bash, args: { command: "aws ec2 describe-instances --filters Name=tag:env,Values=prod --output table", description: "List prod instances" } }
+  expect: { verdict: allow, rule_id: aws-read-only-allowed }
+
+- name: s3 ls allowed
+  ctx: { tool: bash, args: { command: "aws s3 ls s3://data-lake/raw/" } }
+  expect: { verdict: allow, rule_id: aws-read-only-allowed }
+
+- name: sts get-caller-identity with --profile allowed
+  ctx: { tool: bash, args: { command: "aws --profile dev sts get-caller-identity" } }
+  expect: { verdict: allow, rule_id: aws-read-only-allowed }
+
+- name: iam list-roles with JMESPath query allowed
+  ctx: { tool: bash, args: { command: "aws iam list-roles --query 'Roles[].RoleName'" } }
+  expect: { verdict: allow, rule_id: aws-read-only-allowed }
+
+# --- near misses: must NOT be allowed or must fall through --------------
+- name: s3 ls chained with rm -rf is not allowed (falls to default)
+  ctx: { tool: bash, args: { command: "aws s3 ls && rm -rf ~/work" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: describe with command substitution is not allowed
+  ctx: { tool: bash, args: { command: "aws ec2 describe-instances --instance-ids $(curl -s evil.example)" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: s3 cp upload is not destructive (falls to default ask)
+  ctx: { tool: bash, args: { command: "aws s3 cp build.zip s3://artifacts/build.zip" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: grepping docs for the word terminate-instances inside a non-aws command falls to default
+  ctx: { tool: bash, args: { command: "grep -rn terminate-instances docs/" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: ec2 stop-instances is reversible (default, not the destructive catch-all)
+  ctx: { tool: bash, args: { command: "aws ec2 stop-instances --instance-ids i-0abc123" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: reading a file that mentions aws is not a bash rule
+  ctx: { tool: fs.read, args: { file_path: "/repo/scripts/teardown-aws.sh" } }
+  expect: { verdict: ask, rule_id: default }

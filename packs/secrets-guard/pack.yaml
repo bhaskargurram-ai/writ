@@ -1,0 +1,127 @@
+id: secrets-guard
+version: 0.1.0
+description: Keep credential material out of the agent - deny reads of key, token and cloud-credential files, credential-store and env-dump commands, and egress of secret files; mask common token formats in read results.
+# Two sections. Merge the DENY section near the TOP of writ.yaml (before any
+# rule that could allow a read), and the REDACT section at the very END:
+# `redact` means "run the call, then mask the result", so a redact rule also
+# lets every matching call through without a prompt. See README.md.
+#
+# Path regexes: (?i) because Windows and macOS file systems are
+# case-insensitive; [/\x5c] matches `/` or `\` (\x5c is a backslash, written
+# that way so neither YAML nor the policy string lexer rewrites it).
+rules:
+  # ---------------------------------------------------------------- DENY ---
+  - id: secrets-ssh-keys-denied
+    when: >-
+      path matches "(?i)(^|[/\x5c])\.ssh[/\x5c](id_[\w-]+|identity|[\w.-]*_key|authorized_keys2?)$|(^|[/\x5c])ssh_host_[\w-]+_key$|\.ppk$"
+    verdict: deny
+    reason: "SSH private keys (and authorized_keys) are off-limits to the agent. Public keys (*.pub) stay readable."
+
+  - id: secrets-cloud-credentials-denied
+    when: >-
+      path matches "(?i)(^|[/\x5c])\.aws[/\x5c](credentials|(sso|cli)[/\x5c]cache)([/\x5c]|$)|(^|[/\x5c])(\.config|AppData[/\x5c]Roaming)[/\x5c]gcloud([/\x5c]|$)|application_default_credentials\.json$|(^|[/\x5c])\.azure[/\x5c](accessTokens\.json|msal_token_cache|service_principal_entries|msal_http_cache)|(^|[/\x5c])\.kube[/\x5c]config$|(^|[/\x5c])[\w.-]*kubeconfig[\w.-]*$|(^|[/\x5c])\.oci[/\x5c](config|[\w.-]+\.pem)$"
+    verdict: deny
+    reason: "Cloud and cluster credentials (AWS, gcloud, Azure, kubeconfig) are off-limits to the agent. The CLIs read them on their own."
+
+  - id: secrets-dotenv-denied
+    when: >-
+      path matches "(?i)(^|[/\x5c])(\.env(\.[\w.-]+)?|\.envrc|\.dev\.vars)$"
+      and not path matches "(?i)(^|[/\x5c])\.env\.(example|sample|template|dist|defaults)$"
+    verdict: deny
+    reason: ".env files hold live secrets. Read .env.example for the variable names, or ask the user for the value you need."
+
+  - id: secrets-key-files-denied
+    when: >-
+      path matches "(?i)\.(pem|key|p12|pfx|jks|keystore|kdbx)$"
+    verdict: deny
+    reason: "Private key, certificate bundle or password-database file. Off-limits to the agent."
+
+  - id: secrets-token-files-denied
+    when: >-
+      path matches "(?i)(^|[/\x5c])(\.npmrc|\.pypirc|\.netrc|_netrc|\.git-credentials|\.pgpass|pgpass\.conf|\.my\.cnf|\.vault-token|\.dockercfg)$|(^|[/\x5c])\.docker[/\x5c]config\.json$|(^|[/\x5c])(\.config|AppData[/\x5c]Roaming)[/\x5c](gh[/\x5c]hosts\.yml|hub)$|(^|[/\x5c])\.cargo[/\x5c]credentials(\.toml)?$|(^|[/\x5c])\.gem[/\x5c]credentials$|(^|[/\x5c])\.terraform\.d[/\x5c]credentials\.tfrc\.json$|(^|[/\x5c])\.m2[/\x5c]settings(-security)?\.xml$"
+    verdict: deny
+    reason: "Package-registry, git, database or Docker credential file. The tools that need it read it themselves; the agent never does."
+
+  - id: secrets-os-credential-stores-denied
+    when: >-
+      path matches "(?i)(^|[/\x5c])(Login Data|Web Data|Cookies|key[34]\.db|logins\.json|cookies\.sqlite)$|(^|[/\x5c])Keychains([/\x5c]|$)|[/\x5c]Microsoft[/\x5c](Credentials|Protect|Vault)([/\x5c]|$)|^/etc/(shadow|gshadow|sudoers)$|^/proc/[\w]+/environ$|(^|[/\x5c])\.password-store([/\x5c]|$)|(^|[/\x5c])\.gnupg[/\x5c](private-keys-v1\.d|secring\.gpg)"
+    verdict: deny
+    reason: "Browser password/cookie store, OS keychain or credential vault, or process environment. Off-limits to the agent."
+
+  - id: secrets-egress-denied
+    when: >-
+      tool == "bash"
+      and command matches "(?i)(^|[\s;&|(])(curl|wget|scp|sftp|rsync|nc|ncat|netcat|socat|ftp|tftp|Invoke-WebRequest|iwr|Invoke-RestMethod|irm|Start-BitsTransfer|bitsadmin|certutil)(\.exe)?\s"
+      and command matches "(?i)\.ssh[/\x5c](id_[\w-]+|identity)([\s\x22']|$)|\.aws[/\x5c]credentials|gcloud[/\x5c](credentials|access_tokens|legacy_credentials)|application_default_credentials\.json|\.azure[/\x5c](accessTokens|msal_token_cache)|\.kube[/\x5c]config|kubeconfig|(^|[\s/\x5c\x22'=@<])\.env(\.[\w-]+)?([\s\x22')]|$)|\.(pem|key|p12|pfx|ppk|jks|kdbx)([\s\x22')]|$)|\.npmrc|\.pypirc|[._]netrc|\.git-credentials|\.docker[/\x5c]config\.json|\.pgpass|\.vault-token|/etc/shadow|/proc/[\w]+/environ"
+    verdict: deny
+    reason: "A network tool in the same command as a credential file: this is how secrets get exfiltrated. Refused outright."
+
+  - id: secrets-shell-read-denied
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)(^|[\s;&|(])(cp|copy|Copy-Item|mv|move|Move-Item)(\.exe)?(\s[^;&|]*)?(\.ssh[/\x5c](id_[\w-]+|identity)|\.aws[/\x5c]credentials|[\s/\x5c\x22'=<]\.env(\.(local|dev|development|prod|production|staging|test))?|\.(pem|key|p12|pfx|ppk|jks|kdbx)|\.npmrc|\.pypirc|[._]netrc|\.git-credentials|\.kube[/\x5c]config)[\x22']?\s+[^\s;&|]"
+        or command matches "(?i)(^|[\s;&|(])(cat|bat|less|more|head|tail|type|gc|Get-Content|Select-String|sls|findstr|grep|egrep|rg|ag|awk|sed|cut|nl|tac|strings|xxd|od|hexdump|base64|openssl|certutil|tar|zip|7z|Compress-Archive|jq|yq|python[\d.]*|node|ruby|perl)(\.exe)?(\s[^;&|]*)?(\.ssh[/\x5c](id_[\w-]+|identity)([\s\x22')]|$)|\.aws[/\x5c]credentials|gcloud[/\x5c](credentials|access_tokens|legacy_credentials)|application_default_credentials\.json|\.azure[/\x5c](accessTokens|msal_token_cache)|\.kube[/\x5c]config|[\s/\x5c\x22'=<]\.env(\.(local|dev|development|prod|production|staging|test))?([\s\x22')]|$)|\.(pem|key|p12|pfx|ppk|jks|kdbx)([\s\x22')]|$)|\.npmrc|\.pypirc|[._]netrc|\.git-credentials|\.docker[/\x5c]config\.json|\.pgpass|\.vault-token|/etc/shadow|/proc/[\w]+/environ)")
+    verdict: deny
+    reason: "Reading or copying a credential file through the shell. Off-limits to the agent: the tool that needs the credential reads it itself."
+
+  - id: secrets-credential-store-commands-denied
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)(^|[\s;&|(])(security\s+(find-generic-password|find-internet-password|dump-keychain|export)|secret-tool\s+(lookup|search)|(pass|gopass)\s+(show|cat)|op\s+(read|inject|item\s+get|document\s+get)|bw\s+get|lpass\s+show|vault\s+(kv\s+get|read)|cmdkey(\.exe)?\s+/list|vaultcmd(\.exe)?\s+/list|docker-credential-[\w-]+\s+get|git\s+credential(-[\w-]+)?\s+(fill|get))\b"
+        or command matches "(?i)\b(Get-StoredCredential|Get-Secret|CredRead|mimikatz)\b|Windows\.Security\.Credentials\.PasswordVault|GetNetworkCredential\(\)\.Password|ConvertFrom-SecureString\b[^;&|]*-AsPlainText"
+        or command matches "(?i)\bgh(\.exe)?\s+auth\s+token\b|\bgcloud(\.cmd)?\s[^;&|]*\bauth\s+(application-default\s+)?print-(access|identity)-token\b|\baz(\.cmd)?\s[^;&|]*\baccount\s+get-access-token\b|\baws(\.exe)?\s[^;&|]*\bconfigure\s+(export-credentials|get\s+[\w.]*(secret|token))"
+        or command matches "(?i)\bkubectl(\.exe)?\s[^;&|]*\bconfig\s+view\b[^;&|]*--raw\b|\bkubectl(\.exe)?\s[^;&|]*\bget\s+secrets?\b[^;&|]*\s(-o|--output)[\s=]*(yaml|json|jsonpath|go-template)")
+    verdict: deny
+    reason: "This command pulls a secret out of a keychain, password manager, credential helper or CLI token cache into the model's context. Refused."
+
+  - id: secrets-env-dump-denied
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)(^|[;&|(])\s*(env|printenv|set|export(\s+-p)?|declare\s+-x|(Get-ChildItem|gci|dir|ls|Get-Item)\s+env:[\x5c*]*)\s*($|[|>;&)])"
+        or command matches "(?i)\[(System\.)?Environment\]::GetEnvironmentVariables\(|/proc/[\w]+/environ|(print|pprint|console\.log|JSON\.stringify|dict)\s*\(\s*(os\.environ|process\.env)\s*\)"
+        or command matches "\b(?i:echo|printf|Write-Output|Write-Host|Out-Host)\b[^;&|]*(\$\{?|%)[A-Za-z0-9_]*(TOKEN|SECRET|PASSW(OR)?D|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIALS?)[A-Za-z0-9_]*"
+        or command matches "\b(?i:printenv)\s+[A-Za-z0-9_]*(TOKEN|SECRET|PASSW(OR)?D|API_?KEY|ACCESS_?KEY|PRIVATE_?KEY|CREDENTIALS?)"
+        or command matches "(?i)\$env:[a-z0-9_]*(token|secret|passw(or)?d|api_?key|access_?key|private_?key|credentials?)")
+    verdict: deny
+    reason: "Dumping the environment (or printing a secret-named variable) copies API keys and tokens into the model's context. Read the specific non-secret variable you need, e.g. `echo $PATH`."
+
+  # -------------------------------------------------------------- REDACT ---
+  # Merge these at the END of writ.yaml. They let the matched calls run and
+  # mask token-shaped strings in the result before the model sees it.
+  - id: secrets-redact-file-reads
+    when: tool == "fs.read"
+    verdict: redact
+    reason: "File contents are scanned for token formats and masked before they re-enter model context."
+    patterns: &secret_patterns
+      # Private-key blocks: whole block, then any header left without an END line.
+      - '-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY( BLOCK)?-----[\s\S]*?-----END [A-Z0-9 ]{0,40}PRIVATE KEY( BLOCK)?-----'
+      - '-----BEGIN [A-Z0-9 ]{0,40}PRIVATE KEY( BLOCK)?-----(\s*[A-Za-z0-9+/=]{16,})*'
+      # AWS access key IDs and secret/session keys next to their names.
+      - '\b(AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}\b'
+      - '(?i)(aws_secret_access_key|aws_session_token|secretaccesskey|sessiontoken)["'']?\s*[:=]\s*["'']?[A-Za-z0-9/+=]{16,}'
+      # GitHub tokens (classic and fine-grained).
+      - '\bgh[pousr]_[A-Za-z0-9]{36,251}\b'
+      - '\bgithub_pat_[A-Za-z0-9_]{22,255}\b'
+      # Slack tokens and incoming-webhook URLs.
+      - '\bxox[abposr]-[A-Za-z0-9-]{10,250}'
+      - 'https://hooks\.slack\.com/services/[A-Za-z0-9_/-]{20,120}'
+      # JWTs (header.payload.signature).
+      - '\beyJ[A-Za-z0-9_-]{10,}\.eyJ[A-Za-z0-9_-]{10,}\.[A-Za-z0-9_-]*'
+      # Google API keys, Stripe, OpenAI/Anthropic-style, npm, PyPI.
+      - '\bAIza[0-9A-Za-z_-]{35}\b'
+      - '\b(sk|rk)_(live|test)_[0-9A-Za-z]{16,247}\b'
+      - '\bsk-(ant-[a-z]{3,6}\d{2}-|proj-|svcacct-|admin-)?[A-Za-z0-9_-]{32,}'
+      - '\bnpm_[A-Za-z0-9]{36}\b'
+      - '\bpypi-AgEIcHlwaS5vcmc[A-Za-z0-9_-]{50,}'
+      # Credentials embedded in URLs and Authorization headers.
+      - '(?i)\b[a-z][a-z0-9+.-]{1,20}://[^/\s:@]{1,64}:[^/\s@]{1,128}@'
+      - '(?i)\bauthorization:\s*(bearer|basic|token)\s+[A-Za-z0-9._~+/=-]{8,}'
+
+  - id: secrets-redact-shell-reads
+    when: >-
+      tool == "bash"
+      and command matches "(?i)^\s*(cat|type|gc|Get-Content|head|tail|grep|egrep|rg|findstr|Select-String|sls|git\s+(log|show|diff)|docker\s+logs|kubectl\s+logs|journalctl)(\.exe)?\s[^;&|<>$\x60()\n\r]*$"
+      and not command matches "\s(--pre|--output|--open-files-in-pager|-O)(=|\s|$)"
+    verdict: redact
+    reason: "Read-only shell output is scanned for token formats and masked before it re-enters model context."
+    patterns: *secret_patterns

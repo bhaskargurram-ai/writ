@@ -17,21 +17,8 @@ use super::approvals::write_atomic;
 use super::http::Response;
 use super::ledger::verdict_kind;
 
-/// Packs shipped with writ (`packs/` in the repository), embedded.
-pub(crate) const PACKS: &[(&str, &str)] = &[
-    (
-        "terraform-safety",
-        include_str!("../../../../packs/terraform-safety/pack.yaml"),
-    ),
-    (
-        "k8s-prod",
-        include_str!("../../../../packs/k8s-prod/pack.yaml"),
-    ),
-    (
-        "pii-redaction",
-        include_str!("../../../../packs/pii-redaction/pack.yaml"),
-    ),
-];
+/// Packs shipped with writ, embedded at build time (see `build.rs`).
+pub(crate) const PACKS: &[(&str, &str)] = crate::packs::BUNDLED;
 
 /// Largest policy the editor accepts.
 const MAX_POLICY: usize = 512 * 1024;
@@ -297,14 +284,24 @@ mod tests {
     fn packs_embed_and_parse() {
         let p = packs();
         let list = p["packs"].as_array().unwrap();
-        assert_eq!(list.len(), 3);
+        assert!(
+            list.len() >= 9,
+            "expected every pack in packs/, got {}",
+            list.len()
+        );
+        assert!(list.iter().any(|x| x["name"] == "aws-safety"));
         for pk in list {
             assert!(pk["rule_count"].as_u64().unwrap() > 0);
-            assert!(pk["rules"]
-                .as_str()
-                .unwrap()
-                .trim_start()
-                .starts_with("- id:"));
+            // What the editor inserts under `rules:` must compile as-is.
+            let rules = pk["rules"].as_str().unwrap();
+            let policy = format!("version: 1
+default: ask
+rules:
+{rules}
+");
+            if let Err(e) = writ_policy::NativePolicyEngine::from_source(&policy) {
+                panic!("pack {} snippet does not compile: {e}", pk["name"]);
+            }
         }
     }
 

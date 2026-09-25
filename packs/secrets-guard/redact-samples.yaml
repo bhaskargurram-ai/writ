@@ -1,0 +1,73 @@
+# Fake credentials only. Some are written with YAML \x escapes (e.g. \x78oxb-)
+# so the raw file does not look like a real token to secret-scanning push
+# protection; YAML decodes them back to the literal test strings.
+# Masking proofs for packs/secrets-guard. scripts/validate_packs.py drives
+# each sample through the real gateway (`writ check`: decide, then complete
+# with `output`) and asserts every `masked` string is gone from the result
+# the model would see and every `kept` string survived.
+# All token values are fake: AWS's documented example keys and low-entropy
+# placeholders in the right shape.
+
+- name: AWS access key id and secret in a config dump
+  call: { tool: fs.read, args: { file_path: "/repo/deploy/settings.ini" } }
+  output: |
+    [default]
+    region = us-east-1
+    aws_access_key_id = AKIAIOSFODNN7EXAMPLE
+    aws_secret_access_key = wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY
+  masked: ["AKIAIOSFODNN7EXAMPLE", "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"]
+  kept: ["region = us-east-1"]
+
+- name: GitHub classic and fine-grained tokens
+  call: { tool: bash, args: { command: "cat ci/notes.txt" } }
+  output: "old: ghp_EXAMPLEexampleEXAMPLEexampleEXAMPLE00 new: github_pat_11EXAMPLE0000000000000000_exampleexampleexample end"
+  masked: ["ghp_EXAMPLEexampleEXAMPLEexampleEXAMPLE00", "github_pat_11EXAMPLE0000000000000000_exampleexampleexample"]
+  kept: ["old:", "new:", "end"]
+
+- name: Slack bot token and webhook URL
+  call: { tool: bash, args: { command: "grep -rn slack config/" } }
+  output: "config/app.yml:3: token: \x78oxb-000000000000-000000000000-EXAMPLEexampleEXAMPLE\nconfig/app.yml:4: hook: https://hooks.slack.com\x2fservices/T00000000/B00000000/EXAMPLEexampleEXAMPLE0"
+  masked: ["\x78oxb-000000000000-000000000000-EXAMPLEexampleEXAMPLE", "hooks.slack.com\x2fservices/T00000000"]
+  kept: ["config/app.yml:3:", "config/app.yml:4:"]
+
+- name: complete PEM private key block
+  call: { tool: fs.read, args: { file_path: "/repo/docs/setup.md" } }
+  output: |
+    Paste this key:
+    -----BEGIN RSA PRIVATE KEY-----
+    MIIEpAIBAAKCAQEAexampleEXAMPLEexampleEXAMPLEexampleEXAMPLEexample
+    EXAMPLEexampleEXAMPLEexampleEXAMPLEexampleEXAMPLEexampleEXAMPLE00
+    -----END RSA PRIVATE KEY-----
+    then restart the service.
+  masked: ["BEGIN RSA PRIVATE KEY", "MIIEpAIBAAKCAQEAexample", "END RSA PRIVATE KEY"]
+  kept: ["Paste this key:", "then restart the service."]
+
+- name: truncated OpenSSH private key (no END line)
+  call: { tool: bash, args: { command: "head -n 3 notes/key.txt" } }
+  output: "-----BEGIN OPENSSH PRIVATE KEY-----\nb3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQAAAAAAAAABAAAAMwAAAAtzc2gtZW\nQyNTUxOQAAACBexampleEXAMPLEexampleEXAMPLEexampleEXAMPLE"
+  masked: ["BEGIN OPENSSH PRIVATE KEY", "b3BlbnNzaC1rZXktdjEAAAAABG5vbmUAAAAEbm9uZQ", "QyNTUxOQAAACBexample"]
+  kept: []
+
+- name: JWT in a log line
+  call: { tool: bash, args: { command: "kubectl logs deploy/api --tail=5" } }
+  output: "INFO auth ok token=eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJleGFtcGxlIn0.c2lnbmF0dXJlLWV4YW1wbGU user=42"
+  masked: ["eyJhbGciOiJIUzI1NiJ9.eyJzdWIiOiJleGFtcGxlIn0.c2lnbmF0dXJlLWV4YW1wbGU"]
+  kept: ["INFO auth ok token=", "user=42"]
+
+- name: Stripe, OpenAI-style, Anthropic-style, Google, npm keys
+  call: { tool: fs.read, args: { file_path: "/repo/scripts/seed.py" } }
+  output: "STRIPE='sk_test_EXAMPLEexampleEXAMPLE00' OAI='sk-proj-EXAMPLEexampleEXAMPLEexampleEXAMPLE00' ANT='sk-ant-api03-EXAMPLEexampleEXAMPLEexampleEXAMPLE00' GOOG='AIzaEXAMPLEexampleEXAMPLEexampleEXAMPLE' NPM='npm_EXAMPLEexampleEXAMPLEexampleEXAMPLE0'"
+  masked: ["sk_test_EXAMPLE", "sk-proj-EXAMPLE", "sk-ant-api03-EXAMPLE", "AIzaEXAMPLE", "npm_EXAMPLE"]
+  kept: ["STRIPE=", "OAI=", "ANT=", "GOOG=", "NPM="]
+
+- name: credentials embedded in a database URL and an Authorization header
+  call: { tool: bash, args: { command: "cat docker-compose.override.yml" } }
+  output: "DATABASE_URL=postgres://app:s3cretPassw0rd@db.internal:5432/app\ncurl -H 'Authorization: Bearer abcdefEXAMPLE0123456789' https://api.example.com"
+  masked: ["s3cretPassw0rd", "abcdefEXAMPLE0123456789"]
+  kept: ["db.internal:5432/app", "https://api.example.com"]
+
+- name: ordinary code is left alone (no false positives)
+  call: { tool: fs.read, args: { file_path: "/repo/src/lib.rs" } }
+  output: "fn main() { let skip = \"sk-short\"; let key = \"AKIA\"; println!(\"https://example.com/path\"); }"
+  masked: []
+  kept: ["sk-short", "\"AKIA\"", "https://example.com/path"]

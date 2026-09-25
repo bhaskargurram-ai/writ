@@ -8,6 +8,8 @@ The ledger record schema is versioned separately (`schema_version`, see
 
 ## [Unreleased]
 
+## [0.1.2] — 2026-09-25
+
 ### Added
 
 - **`writ ui`**, a local web console: connect an agent (snippets with your
@@ -30,9 +32,28 @@ The ledger record schema is versioned separately (`schema_version`, see
 - **MCP proxy over Streamable HTTP / SSE** (`writ proxy --transport http`).
 - **Browser playground** on the website: the real engine as WebAssembly.
 - `--ask ui` in the Python and TypeScript SDKs.
+- **Six new policy packs**: `aws-safety`, `gcp-azure-safety`, `github-safety`,
+  `secrets-guard`, `database-safety`, `package-publish-guard`, each with
+  fixtures; every pack now ships a README and fixtures, and
+  `scripts/validate_packs.py` runs them (plus redact samples through the real
+  gateway).
+- Packs are **bundled into the binary**: `writ policy add <pack>` works in any
+  directory (a local `./packs/<id>` still wins), and `writ ui` lists them all.
+- Reproducible prompt-injection **attack demo** (`examples/attack-demo`).
+
+### Fixed
+
+- `k8s-prod` and `terraform-safety` missed subcommands after global flags
+  (`kubectl --context prod delete`, `terraform -chdir=x destroy`); they now
+  match, cover OpenTofu, and treat `apply -destroy` as a destroy.
+- JSONL ledger: lock-free readers no longer report a write in progress as
+  mid-file corruption (Linux, concurrent writers), and contended writers wait
+  in the OS lock queue instead of polling (no starvation under load).
 
 ### Security
 
+- `writ receipt keygen` strips Everyone / Authenticated Users / Users from
+  the private key's ACL on Windows.
 - A Postgres ledger URL is never printed with its password, and never written
   into agent hook configuration or a `writ run` hook command line.
 

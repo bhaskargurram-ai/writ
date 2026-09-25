@@ -1,0 +1,161 @@
+# Fixtures for packs/database-safety, run against the pack wrapped in
+# `version: 1` / `default: ask` (unmatched -> rule_id: default). MCP cases
+# are shaped like Claude Code's `mcp__<server>__<tool>` after mapping:
+#   postgres (reference server): tool `query`, args {sql}
+#   mysql:  tool `mysql_query`, args {sql}
+#   sqlite: tools `read_query` / `write_query`, args {query}
+#   supabase / DBHub: tool `execute_sql`, args {query} or {sql}
+
+# --- ask: DROP / TRUNCATE / ALTER -----------------------------------------
+- name: postgres MCP DROP TABLE asks
+  ctx: { tool: query, server: postgres, args: { sql: "DROP TABLE users;" } }
+  expect: { verdict: ask, rule_id: db-drop-asks }
+
+- name: lower-case drop after a leading comment asks
+  ctx: { tool: execute_sql, server: supabase, args: { query: "-- cleanup\ndrop table if exists public.sessions cascade" } }
+  expect: { verdict: ask, rule_id: db-drop-asks }
+
+- name: DROP hidden as the second statement asks
+  ctx: { tool: mysql_query, server: mysql, args: { sql: "SELECT 1; DROP DATABASE shop" } }
+  expect: { verdict: ask, rule_id: db-drop-asks }
+
+- name: sqlite MCP write_query TRUNCATE-style delete of a table asks
+  ctx: { tool: write_query, server: sqlite, args: { query: "TRUNCATE TABLE audit_log" } }
+  expect: { verdict: ask, rule_id: db-truncate-asks }
+
+- name: ALTER TABLE DROP COLUMN asks
+  ctx: { tool: query, server: postgres, args: { sql: "ALTER TABLE orders DROP COLUMN legacy_total" } }
+  expect: { verdict: ask, rule_id: db-alter-asks }
+
+# --- ask: DELETE / UPDATE without WHERE -----------------------------------
+- name: DELETE without WHERE asks
+  ctx: { tool: query, server: postgres, args: { sql: "DELETE FROM sessions;" } }
+  expect: { verdict: ask, rule_id: db-delete-without-where-asks }
+
+- name: DELETE with WHERE 1=1 asks
+  ctx: { tool: execute_sql, server: dbhub, args: { sql: "delete from carts where 1=1" } }
+  expect: { verdict: ask, rule_id: db-delete-without-where-asks }
+
+- name: UPDATE without WHERE asks
+  ctx: { tool: mysql_query, server: mysql, args: { sql: "UPDATE users SET is_admin = 1" } }
+  expect: { verdict: ask, rule_id: db-update-without-where-asks }
+
+- name: UPDATE ... WHERE TRUE asks
+  ctx: { tool: query, server: postgres, args: { sql: "update accounts set balance = 0 where true" } }
+  expect: { verdict: ask, rule_id: db-update-without-where-asks }
+
+# --- ask: privileges and other writes -------------------------------------
+- name: GRANT ALL asks
+  ctx: { tool: query, server: postgres, args: { sql: "GRANT ALL PRIVILEGES ON ALL TABLES IN SCHEMA public TO analyst" } }
+  expect: { verdict: ask, rule_id: db-privilege-change-asks }
+
+- name: DELETE with a WHERE clause is a write (asks, not irreversible)
+  ctx: { tool: query, server: postgres, args: { sql: "DELETE FROM sessions WHERE expires_at < now()" } }
+  expect: { verdict: ask, rule_id: db-write-asks }
+
+- name: INSERT asks as a write
+  ctx: { tool: write_query, server: sqlite, args: { query: "INSERT INTO notes(body) VALUES ('hi')" } }
+  expect: { verdict: ask, rule_id: db-write-asks }
+
+# --- ask: CLIs ------------------------------------------------------------
+- name: psql -c DROP TABLE asks
+  ctx: { tool: bash, args: { command: "psql \"$DATABASE_URL\" -c \"DROP TABLE users\"", description: "Drop users table" } }
+  expect: { verdict: ask, rule_id: db-cli-destructive-asks }
+
+- name: mysql -e TRUNCATE asks
+  ctx: { tool: bash, args: { command: "mysql -u root -p shop -e 'TRUNCATE orders'" } }
+  expect: { verdict: ask, rule_id: db-cli-destructive-asks }
+
+- name: sqlite3 DELETE without WHERE asks
+  ctx: { tool: bash, args: { command: "sqlite3 app.db \"DELETE FROM events;\"" } }
+  expect: { verdict: ask, rule_id: db-cli-destructive-asks }
+
+- name: echo piped into psql UPDATE without WHERE asks
+  ctx: { tool: bash, args: { command: "echo \"UPDATE users SET plan='free'\" | psql -d prod" } }
+  expect: { verdict: ask, rule_id: db-cli-destructive-asks }
+
+- name: PowerShell Invoke-Sqlcmd DROP DATABASE asks
+  ctx: { tool: bash, args: { command: "Invoke-Sqlcmd -ServerInstance prod-sql -Query \"DROP DATABASE Billing\"" } }
+  expect: { verdict: ask, rule_id: db-cli-destructive-asks }
+
+- name: dropdb asks
+  ctx: { tool: bash, args: { command: "dropdb -h prod-db.internal app_production" } }
+  expect: { verdict: ask, rule_id: db-cli-drop-tools-asks }
+
+- name: redis-cli FLUSHALL asks
+  ctx: { tool: bash, args: { command: "redis-cli -h cache.internal FLUSHALL" } }
+  expect: { verdict: ask, rule_id: db-cli-drop-tools-asks }
+
+- name: mongosh dropDatabase asks
+  ctx: { tool: bash, args: { command: "mongosh mongodb://db/app --eval 'db.dropDatabase()'" } }
+  expect: { verdict: ask, rule_id: db-cli-drop-tools-asks }
+
+- name: prisma migrate reset asks
+  ctx: { tool: bash, args: { command: "npx prisma migrate reset --force" } }
+  expect: { verdict: ask, rule_id: db-migration-reset-asks }
+
+- name: rails db:drop asks
+  ctx: { tool: bash, args: { command: "RAILS_ENV=production bin/rails db:drop" } }
+  expect: { verdict: ask, rule_id: db-migration-reset-asks }
+
+# --- allow ----------------------------------------------------------------
+- name: postgres MCP SELECT allowed
+  ctx: { tool: query, server: postgres, args: { sql: "SELECT id, email FROM users WHERE created_at > now() - interval '1 day' LIMIT 50;" } }
+  expect: { verdict: allow, rule_id: db-select-allowed }
+
+- name: sqlite read_query with a CTE allowed
+  ctx: { tool: read_query, server: sqlite, args: { query: "WITH recent AS (SELECT * FROM orders ORDER BY id DESC LIMIT 10) SELECT count(*) FROM recent" } }
+  expect: { verdict: allow, rule_id: db-select-allowed }
+
+- name: EXPLAIN SELECT allowed
+  ctx: { tool: execute_sql, server: supabase, args: { query: "explain select * from orders where user_id = 7" } }
+  expect: { verdict: allow, rule_id: db-select-allowed }
+
+- name: sqlite list_tables allowed
+  ctx: { tool: list_tables, server: sqlite, args: {} }
+  expect: { verdict: allow, rule_id: db-schema-introspection-allowed }
+
+# --- near misses ----------------------------------------------------------
+- name: DROP TABLE inside a string literal is not a DROP (no drop rule; the allow still refuses any write keyword, so default ask)
+  ctx: { tool: query, server: postgres, args: { sql: "SELECT 'DROP TABLE users' AS example_text" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: column named drop_reason is not a DROP
+  ctx: { tool: query, server: postgres, args: { sql: "SELECT drop_reason, truncated FROM shipments" } }
+  expect: { verdict: allow, rule_id: db-select-allowed }
+
+- name: UPDATE with a WHERE is not the without-WHERE rule
+  ctx: { tool: query, server: postgres, args: { sql: "UPDATE users SET plan = 'pro' WHERE id = 42" } }
+  expect: { verdict: ask, rule_id: db-write-asks }
+
+- name: SELECT ... FOR UPDATE takes locks (not auto-allowed)
+  ctx: { tool: query, server: postgres, args: { sql: "SELECT * FROM jobs WHERE state = 'queued' FOR UPDATE SKIP LOCKED" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: SELECT with a side-effecting function is not allowed
+  ctx: { tool: query, server: postgres, args: { sql: "SELECT pg_terminate_backend(pid) FROM pg_stat_activity" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: SELECT INTO creates a table (not allowed)
+  ctx: { tool: query, server: postgres, args: { sql: "SELECT * INTO backup_users FROM users" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: two SELECTs in one call are not auto-allowed
+  ctx: { tool: query, server: postgres, args: { sql: "SELECT 1; SELECT 2" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: WebSearch about DROP TABLE is not SQL
+  ctx: { tool: web.search, args: { query: "DROP TABLE if exists syntax postgres" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: psql SELECT is not destructive (falls to default)
+  ctx: { tool: bash, args: { command: "psql -d app -c \"SELECT count(*) FROM users\"" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: grep for DROP TABLE in migrations is not a database CLI
+  ctx: { tool: bash, args: { command: "grep -rn \"DROP TABLE\" db/migrations" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: psql DELETE with WHERE is not flagged as a full wipe
+  ctx: { tool: bash, args: { command: "psql -c \"DELETE FROM sessions WHERE id = 7\"" } }
+  expect: { verdict: ask, rule_id: default }

@@ -3031,7 +3031,7 @@ dependencies = [
 
 [[package]]
 name = "writ-cli"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "anyhow",
  "base64 0.23.1",
@@ -3060,7 +3060,7 @@ dependencies = [
 
 [[package]]
 name = "writ-core"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "hex",
  "serde",
@@ -3071,7 +3071,7 @@ dependencies = [
 
 [[package]]
 name = "writ-ledger"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "hex",
  "percent-encoding",
@@ -3089,7 +3089,7 @@ dependencies = [
 
 [[package]]
 name = "writ-mcp"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.22.1",
  "httparse",
@@ -3103,7 +3103,7 @@ dependencies = [
 
 [[package]]
 name = "writ-otel"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -3113,7 +3113,7 @@ dependencies = [
 
 [[package]]
 name = "writ-policy"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "regex",
  "serde",
@@ -3125,7 +3125,7 @@ dependencies = [
 
 [[package]]
 name = "writ-policy-cedar"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "cedar-policy",
  "regex",
@@ -3135,7 +3135,7 @@ dependencies = [
 
 [[package]]
 name = "writ-policy-rego"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "regorus",
  "serde_json",
@@ -3145,7 +3145,7 @@ dependencies = [
 
 [[package]]
 name = "writ-receipts"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "base64 0.23.1",
  "ed25519-dalek",
@@ -3163,7 +3163,7 @@ dependencies = [
 
 [[package]]
 name = "writ-replay"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde",
  "serde_json",
@@ -3175,7 +3175,7 @@ dependencies = [
 
 [[package]]
 name = "writ-sandbox"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "landlock",
  "libc",
@@ -3189,14 +3189,14 @@ dependencies = [
 
 [[package]]
 name = "writ-sandbox-docker"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "writ-core",
 ]
 
 [[package]]
 name = "writ-tui"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "serde_json",
  "writ-core",
@@ -3204,7 +3204,7 @@ dependencies = [
 
 [[package]]
 name = "writ-wasm"
-version = "0.1.1"
+version = "0.1.2"
 dependencies = [
  "regex",
  "serde",

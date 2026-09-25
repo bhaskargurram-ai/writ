@@ -1,0 +1,145 @@
+id: aws-safety
+version: 0.1.0
+description: Hard blocks and human gates for destructive AWS CLI and AWS Tools for PowerShell operations; read-only describe/list/get calls pass.
+# Rules are evaluated in order, first match wins: deny, then ask, then the
+# read-only allow at the bottom. Regex notes: (?i) because Windows shells
+# resolve AWS.EXE case-insensitively; [^;&|]* keeps a match inside one
+# shell pipeline segment; the allow is anchored and rejects shell
+# metacharacters so `aws s3 ls && <anything>` never rides on it.
+rules:
+  - id: aws-audit-logging-tamper-denied
+    when: >-
+      tool == "bash"
+      and command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\b(cloudtrail\s+(delete-trail|stop-logging)|guardduty\s+(delete-detector|disassociate-from-master-account|disassociate-from-administrator-account)|configservice\s+(delete-configuration-recorder|stop-configuration-recorder|delete-delivery-channel)|securityhub\s+disable-security-hub|access-analyzer\s+delete-analyzer|macie2\s+disable-macie)\b"
+    verdict: deny
+    reason: "Turning off CloudTrail, GuardDuty, Config or Security Hub hides everything that happens next. A human makes this change outside the agent."
+
+  - id: aws-organizations-denied
+    when: >-
+      tool == "bash"
+      and command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\borganizations\s+(delete|leave|remove|close|detach|disable|deregister)-[a-z-]+"
+    verdict: deny
+    reason: "AWS Organizations changes (closing or removing accounts, detaching SCPs, disabling policy types) affect every account in the org. Not an agent task."
+
+  - id: aws-kms-key-deletion-denied
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\bkms\s+schedule-key-deletion\b"
+        or command matches "(?i)\bRequest-KMSKeyDeletion\b")
+    verdict: deny
+    reason: "Once the KMS deletion window closes, every object encrypted under the key is unrecoverable. Schedule key deletion through a reviewed change, not an agent."
+
+  - id: aws-s3-force-remove-bucket-denied
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\bs3\s+rb\b[^;&|]*\s--force\b"
+        or command matches "(?i)\bRemove-S3Bucket\b[^;&|]*-DeleteBucketContent\b")
+    verdict: deny
+    reason: "`s3 rb --force` deletes every object and then the bucket, with no undo on unversioned buckets. Empty and remove the bucket deliberately, by hand."
+
+  - id: aws-rds-delete-without-snapshot-denied
+    when: >-
+      tool == "bash"
+      and command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\brds\s+delete-db-(instance|cluster)\b[^;&|]*\s--(skip-final-snapshot|delete-automated-backups)\b"
+    verdict: deny
+    reason: "Deleting a database with --skip-final-snapshot or --delete-automated-backups leaves nothing to restore from. Take a final snapshot, then ask a human."
+
+  - id: aws-iam-delete-asks
+    when: >-
+      tool == "bash"
+      and command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\biam\s+(delete|detach|remove|deactivate)-[a-z-]+"
+    verdict: ask
+    reason: "Deleting or detaching IAM users, roles, policies or MFA devices can lock people and services out. Confirm the principal and who depends on it."
+    irreversible: true
+    timeout: 10m
+
+  - id: aws-iam-privilege-change-asks
+    when: >-
+      tool == "bash"
+      and command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\biam\s+(put-(user|role|group)-policy|attach-(user|role|group)-policy|create-policy-version|set-default-policy-version|update-assume-role-policy|add-user-to-group|add-role-to-instance-profile|create-access-key|create-login-profile|update-login-profile|put-(user|role)-permissions-boundary)\b"
+    verdict: ask
+    reason: "IAM policy, trust or credential change: a privilege escalation path. Review exactly which permissions are granted and to whom."
+    timeout: 10m
+
+  - id: aws-s3-delete-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\bs3\s+(rm|rb)\b"
+        or command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\bs3\s+sync\b[^;&|]*\s--delete\b"
+        or command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\bs3api\s+(delete-bucket|delete-objects?|delete-bucket-[a-z-]+)\b")
+    verdict: ask
+    reason: "Deleting S3 objects or buckets. Unless the bucket is versioned, deleted objects cannot be restored. Check the prefix and any --recursive flag."
+    irreversible: true
+    timeout: 10m
+
+  - id: aws-s3-exposure-asks
+    when: >-
+      tool == "bash"
+      and command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\bs3api\s+(put-bucket-policy|put-bucket-acl|put-object-acl|delete-public-access-block|put-public-access-block|put-bucket-website)\b"
+    verdict: ask
+    reason: "Changing bucket policy, ACLs or Block Public Access can make data public. Data that was public even briefly should be treated as disclosed."
+    irreversible: true
+
+  - id: aws-ec2-terminate-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\bec2\s+terminate-instances\b"
+        or command matches "(?i)\bRemove-EC2Instance\b")
+    verdict: ask
+    reason: "Terminating EC2 instances destroys instance-store data and any EBS volume with DeleteOnTermination. Confirm the instance IDs and the account."
+    irreversible: true
+    timeout: 10m
+
+  - id: aws-rds-delete-asks
+    when: >-
+      tool == "bash"
+      and command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\brds\s+delete-db-[a-z-]+"
+    verdict: ask
+    reason: "Deleting an RDS instance, cluster or snapshot. Confirm a final snapshot exists and the identifier is the one you mean."
+    irreversible: true
+    timeout: 10m
+
+  - id: aws-stack-teardown-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\bcloudformation\s+delete-stack(-instances|-set)?\b"
+        or command matches "(?i)(^|[\s;&|(])(npx\s+|pnpm\s+(dlx\s+|exec\s+)?)?(cdk\s+destroy|sam\s+delete|(serverless|sls)\s+remove|copilot\s+(app|env|svc)\s+delete|amplify\s+delete)\b"
+        or command matches "(?i)\bRemove-CFNStack\b")
+    verdict: ask
+    reason: "Tearing down a CloudFormation/CDK/SAM/Serverless stack deletes every resource it owns unless a resource is retained. Review the stack's resources first."
+    irreversible: true
+    timeout: 10m
+
+  - id: aws-secret-read-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\b(secretsmanager\s+(get-secret-value|batch-get-secret-value)|ecr\s+get-login-password|ecr\s+get-authorization-token|sts\s+(get-session-token|get-federation-token|assume-role[a-z-]*)|configure\s+(get|export-credentials)|rds\s+generate-db-auth-token|codeartifact\s+get-authorization-token|eks\s+get-token|lightsail\s+get-instance-access-details|lambda\s+get-function(-configuration)?|kms\s+decrypt)\b"
+        or command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\bssm\s+get-parameters?(-by-path)?\b[^;&|]*\s--with-decryption\b"
+        or command matches "(?i)\baws(\.exe|\.cmd)?\s[^;&|]*?\bapigateway\s+get-api-keys?\b[^;&|]*\s--include-values?\b"
+        or command matches "(?i)\b(Get-SECSecretValue|Get-ECRLoginCommand|Get-STSSessionToken|Use-STSRole)\b"
+        or command matches "(?i)\bGet-SSMParameter(Value|sByPath)?\b[^;&|]*-WithDecryption")
+    verdict: ask
+    reason: "This call returns secret or credential material into the model's context (and the transcript). Approve only if the agent genuinely needs the value."
+
+  - id: aws-powershell-remove-asks
+    when: >-
+      tool == "bash"
+      and command matches "(?i)\b(Remove|Unregister|Revoke|Reset|Clear)-(S3|EC2|IAM|RDS|CFN|KMS|ORG|DDB|ECR|EKS|ECS|LM|SNS|SQS|R53|SEC|SSM|CT|GD|CW|CWL|ELB2|ASG|EFS|BAK)[A-Za-z]+\b"
+    verdict: ask
+    reason: "AWS Tools for PowerShell remove/revoke/reset cmdlet: deletes or disables a real AWS resource. Confirm the resource and the account."
+    irreversible: true
+
+  - id: aws-destructive-verb-asks
+    when: >-
+      tool == "bash"
+      and command matches "(?i)\baws(\.exe|\.cmd)?(\s[^;&|]*?)?\s[a-z0-9-]+\s+(delete|terminate|remove|deregister|purge|destroy|revoke|reset|detach|disassociate|disable)-[a-z0-9-]*"
+    verdict: ask
+    reason: "AWS operation that deletes, detaches, disables or stops a resource. Confirm the resource ID, region and account (check --profile)."
+    irreversible: true
+
+  - id: aws-read-only-allowed
+    when: >-
+      tool == "bash"
+      and command matches "(?i)^\s*aws(\.exe|\.cmd)?(\s+--(no-cli-pager|no-paginate|debug|no-sign-request)|\s+--(profile|region|output|color)(\s+|=)[\w.-]+)*\s+([a-z0-9-]+\s+(describe|list|get)-[a-z0-9-]+|s3\s+ls|configure\s+list(-profiles)?|sts\s+get-caller-identity)(\s[^;&|<>$\x60()\n\r]*)?$"
+    verdict: allow
+    reason: "Read-only AWS describe/list/get call with no shell chaining."

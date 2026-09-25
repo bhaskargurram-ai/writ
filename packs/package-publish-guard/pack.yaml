@@ -1,0 +1,111 @@
+id: package-publish-guard
+version: 0.1.0
+description: Human gates on publishing packages and images (npm/pnpm/yarn/bun, twine/poetry/uv, cargo, gem, docker/podman, helm, nuget, maven/gradle, PowerShell Gallery); npm unpublish, deprecate and owner changes are refused; dry runs pass.
+# Evaluated in order, first match wins: dry-run allow, deny, then asks.
+# A published version is effectively permanent: registries forbid reusing a
+# version number, mirrors and caches keep copies, and downstream installs
+# pick it up within minutes. (?i) because Windows resolves NPM.CMD and
+# friends case-insensitively; `publish(\s|$)` so `npm run publish-docs` is
+# not mistaken for a publish.
+rules:
+  - id: publish-dry-run-allowed
+    when: >-
+      tool == "bash"
+      and command matches "(?i)^\s*(npm|pnpm|yarn|bun|cargo|poetry|uv|helm)(\.cmd|\.exe)?(\s[^;&|<>$\x60()\n\r]*)?\s(publish|push)(\s[^;&|<>$\x60()\n\r]*)?\s--dry-run(\s[^;&|<>$\x60()\n\r]*)?$"
+    verdict: allow
+    reason: "Dry run: packs and validates the release without uploading anything."
+
+  - id: publish-npm-unpublish-denied
+    when: >-
+      tool == "bash"
+      and command matches "(?i)(^|[\s;&|(])(npm|pnpm|yarn|bun)(\.cmd|\.exe)?\s([^;&|]*?\s)?(unpublish|deprecate|undeprecate)(\s|$)"
+    verdict: deny
+    reason: "Unpublishing or deprecating a package breaks every project that depends on it (npm also blocks reusing an unpublished version). A maintainer does this deliberately, by hand."
+
+  - id: publish-registry-ownership-denied
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)(^|[\s;&|(])(npm|pnpm|yarn)(\.cmd|\.exe)?\s([^;&|]*?\s)?(owner\s+(add|rm|remove)|access\s+(grant|revoke|set|2fa-not-required|public|restricted)|team\s+(add|rm))\b"
+        or command matches "(?i)(^|[\s;&|(])(gem\s+owner\b[^;&|]*\s(--add|--remove|-a|-r)|cargo\s+owner\b[^;&|]*\s(--add|--remove|-a|-r))\b")
+    verdict: deny
+    reason: "Changing who can publish a package (owners, teams, 2FA or access level) is an account-takeover path. Maintainers change this in the registry UI."
+
+  - id: publish-npm-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)(^|[\s;&|(])(npm|pnpm|bun)(\.cmd|\.exe)?\s([^;&|]*?\s)?publish(\s|$)"
+        or command matches "(?i)(^|[\s;&|(])yarn(\.cmd)?\s([^;&|]*?\s)?(npm\s+)?publish(\s|$)"
+        or command matches "(?i)(^|[\s;&|(])(npx\s+|pnpm\s+(dlx|exec)\s+|yarn\s+)?(lerna\s+publish|changeset\s+publish|nx\s+release\s+publish|semantic-release)\b"
+        or command matches "(?i)(^|[\s;&|(])(npm|pnpm|yarn)(\.cmd|\.exe)?\s([^;&|]*?\s)?dist-tag\s+(add|rm)\b")
+    verdict: ask
+    reason: "Publishing to the npm registry: the version number is burned forever and installs pick it up immediately. Confirm the version, the dist-tag and the files (`npm pack --dry-run`)."
+    irreversible: true
+    timeout: 10m
+
+  - id: publish-python-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)(^|[\s;&|(])(python[\d.]*\s+-m\s+)?twine(\.exe)?\s([^;&|]*?\s)?upload\b"
+        or command matches "(?i)(^|[\s;&|(])(poetry|uv|flit|hatch|pdm|maturin)(\.exe)?\s([^;&|]*?\s)?publish(\s|$)")
+    verdict: ask
+    reason: "Uploading to PyPI (or another index): a released file name can never be reused, even after deletion. Confirm the version and the target repository."
+    irreversible: true
+    timeout: 10m
+
+  - id: publish-cargo-asks
+    when: >-
+      tool == "bash"
+      and command matches "(?i)(^|[\s;&|(])cargo(\.exe)?\s([^;&|]*?\s)?publish(\s|$)"
+    verdict: ask
+    reason: "cargo publish uploads to crates.io permanently: a published version can be yanked but never deleted or overwritten."
+    irreversible: true
+    timeout: 10m
+
+  - id: publish-yank-asks
+    when: >-
+      tool == "bash"
+      and command matches "(?i)(^|[\s;&|(])(cargo|gem)(\.exe|\.cmd)?\s([^;&|]*?\s)?yank\b"
+    verdict: ask
+    reason: "Yanking a release stops new lockfiles from resolving it and can break downstream builds. Confirm the version."
+
+  - id: publish-gem-asks
+    when: >-
+      tool == "bash"
+      and command matches "(?i)(^|[\s;&|(])gem(\.cmd)?\s([^;&|]*?\s)?push\b|(^|[\s;&|(])(bundle\s+exec\s+)?rake\s+release\b"
+    verdict: ask
+    reason: "gem push publishes to RubyGems: the version is permanent. Confirm the version and the gem file."
+    irreversible: true
+    timeout: 10m
+
+  - id: publish-image-push-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)(^|[\s;&|(])(docker|podman|buildah|nerdctl)(\.exe)?\s([^;&|]*?\s)?(image\s+push|manifest\s+push|push)(\s|$)"
+        or command matches "(?i)(^|[\s;&|(])docker(\.exe)?\s+buildx\s+(build|bake)\b[^;&|]*(\s--push\b|--output[=\s]+type=registry)"
+        or command matches "(?i)(^|[\s;&|(])(crane\s+(push|copy|cp|tag)|skopeo\s+copy\b[^;&|]*\sdocker://|oras\s+push|ko\s+(build|publish|apply)|jib\b|kaniko)\b")
+    verdict: ask
+    reason: "Pushing a container image to a registry: running systems that pull by tag (latest, a moving semver tag) pick it up. Confirm the image, the tag and the registry."
+    irreversible: true
+    timeout: 10m
+
+  - id: publish-helm-push-asks
+    when: >-
+      tool == "bash"
+      and command matches "(?i)(^|[\s;&|(])helm(\.exe)?\s([^;&|]*?\s)?(push|cm-push)(\s|$)"
+    verdict: ask
+    reason: "Pushing a Helm chart to a repository or OCI registry: clusters that track the chart can upgrade to it. Confirm the chart version and the registry."
+    irreversible: true
+    timeout: 10m
+
+  - id: publish-other-registries-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)(^|[\s;&|(])(dotnet(\.exe)?\s+nuget\s+push|nuget(\.exe)?\s+push|choco(\.exe)?\s+push)\b"
+        or command matches "(?i)(^|[\s;&|(])(mvn|mvnw|\./mvnw|mvnw\.cmd)(\.cmd)?\s([^;&|]*?\s)?(deploy|release:perform)\b"
+        or command matches "(?i)(^|[\s;&|(])(gradle|gradlew|\./gradlew|gradlew\.bat)(\.bat)?\s([^;&|]*?\s)?(publish\w*|uploadArchives)\b"
+        or command matches "(?i)(^|[\s;&|(])(Publish-Module|Publish-Script|Publish-PSResource)\b"
+        or command matches "(?i)(^|[\s;&|(])((npx\s+)?(vsce|ovsx)\s+publish|(dart|flutter)\s+pub\s+publish|mix\s+hex\.publish|pod\s+trunk\s+push|swift\s+package-registry\s+publish)\b")
+    verdict: ask
+    reason: "Publishing a package or extension to a public or shared registry. Confirm the version, the artifact and the registry."
+    irreversible: true
+    timeout: 10m

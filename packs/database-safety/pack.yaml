@@ -1,0 +1,126 @@
+id: database-safety
+version: 0.1.0
+description: Human gates for destructive SQL (DROP, TRUNCATE, ALTER, DELETE/UPDATE without WHERE) through SQL MCP servers and database CLIs (psql, mysql, sqlite3, sqlcmd, redis-cli, mongosh, ORM migrate/reset); single read-only SELECTs through MCP pass.
+# Evaluated in order, first match wins.
+#
+# MCP side: postgres/mysql/sqlite/supabase/neon/DBHub-style servers put the
+# SQL in args.sql or args.query, which writ exposes as `query`. Rules skip
+# web.search and http, whose `query` is not SQL. Statement keywords are only
+# matched at a statement start, after `^` or `;` plus whitespace and
+# comments, so `SELECT 'DROP TABLE x'` (a string literal) does not match.
+#
+# CLI side: the SQL sits inside shell quoting, so keywords are matched after
+# a quote, space, `;` or `(`. A keyword inside a SQL string literal there
+# still matches: that is a false ask, not a false allow.
+rules:
+  - id: db-drop-asks
+    when: >-
+      not tool startswith "web" and not tool == "http"
+      and query matches "(?i)(^|;)(\s|--[^\n]*|/\*[^*]*\*+/)*DROP\s+(TABLE|DATABASE|SCHEMA|VIEW|MATERIALIZED\s+VIEW|INDEX|SEQUENCE|FUNCTION|PROCEDURE|TRIGGER|TYPE|DOMAIN|EXTENSION|ROLE|USER|OWNED|COLLECTION|KEYSPACE|POLICY|PUBLICATION|SUBSCRIPTION)\b"
+    verdict: ask
+    reason: "DROP deletes the object and its data. Confirm the target database and that a backup or migration rollback exists."
+    irreversible: true
+    timeout: 10m
+
+  - id: db-truncate-asks
+    when: >-
+      not tool startswith "web" and not tool == "http"
+      and query matches "(?i)(^|;)(\s|--[^\n]*|/\*[^*]*\*+/)*TRUNCATE\b"
+    verdict: ask
+    reason: "TRUNCATE removes every row, skips row-level triggers and cannot be filtered. Confirm the table and the environment."
+    irreversible: true
+    timeout: 10m
+
+  - id: db-alter-asks
+    when: >-
+      not tool startswith "web" and not tool == "http"
+      and query matches "(?i)(^|;)(\s|--[^\n]*|/\*[^*]*\*+/)*(ALTER\s+(TABLE|DATABASE|SCHEMA|INDEX|VIEW|SEQUENCE|TYPE|ROLE|USER|DEFAULT\s+PRIVILEGES|SYSTEM)|RENAME\s+TABLE)\b"
+    verdict: ask
+    reason: "Schema change: dropped or retyped columns lose data, and long table locks stall production. Route schema changes through a reviewed migration."
+    irreversible: true
+    timeout: 10m
+
+  - id: db-delete-without-where-asks
+    when: >-
+      not tool startswith "web" and not tool == "http"
+      and query matches "(?i)(^|;)(\s|--[^\n]*|/\*[^*]*\*+/)*(WITH\b[^;]*\)\s*)?DELETE\b"
+      and (not query matches "(?i)\bWHERE\b" or query matches "(?i)\bWHERE\s+(1\s*=\s*1|TRUE|1|'1'\s*=\s*'1')\s*(;|$|\bRETURNING\b|\bLIMIT\b|--)")
+    verdict: ask
+    reason: "DELETE with no WHERE clause (or WHERE 1=1) removes every row in the table. Add the filter you mean, or confirm a full wipe."
+    irreversible: true
+    timeout: 10m
+
+  - id: db-update-without-where-asks
+    when: >-
+      not tool startswith "web" and not tool == "http"
+      and query matches "(?i)(^|;)(\s|--[^\n]*|/\*[^*]*\*+/)*(WITH\b[^;]*\)\s*)?UPDATE\b[^;]*\bSET\b"
+      and (not query matches "(?i)\bWHERE\b" or query matches "(?i)\bWHERE\s+(1\s*=\s*1|TRUE|1|'1'\s*=\s*'1')\s*(;|$|\bRETURNING\b|\bLIMIT\b|--)")
+    verdict: ask
+    reason: "UPDATE with no WHERE clause (or WHERE 1=1) rewrites every row. Add the filter you mean, or confirm a table-wide change."
+    irreversible: true
+    timeout: 10m
+
+  - id: db-privilege-change-asks
+    when: >-
+      not tool startswith "web" and not tool == "http"
+      and query matches "(?i)(^|;)(\s|--[^\n]*|/\*[^*]*\*+/)*(GRANT|REVOKE|CREATE\s+(ROLE|USER)|SET\s+ROLE|SET\s+SESSION\s+AUTHORIZATION)\b"
+    verdict: ask
+    reason: "Database privilege or role change. Review who gains which rights on what."
+
+  - id: db-write-asks
+    when: >-
+      not tool startswith "web" and not tool == "http"
+      and query matches "(?i)(^|;)(\s|--[^\n]*|/\*[^*]*\*+/)*(INSERT|UPDATE|DELETE|MERGE|UPSERT|REPLACE|CREATE|COPY|LOAD|CALL|DO|EXEC|EXECUTE|VACUUM|REINDEX|CLUSTER|LOCK|COMMENT\s+ON|SECURITY\s+LABEL|REFRESH)\b"
+    verdict: ask
+    reason: "SQL that writes data or changes the database. Confirm the statement and the target database."
+
+  - id: db-cli-destructive-asks
+    when: >-
+      tool == "bash"
+      and command matches "(?i)(^|[\s;&|(])(psql|mysql|mariadb|sqlite3|sqlcmd|Invoke-Sqlcmd|clickhouse-client|duckdb|snowsql|cockroach\s+sql|usql|pgcli|mycli|litecli)(\.exe)?\b"
+      and (command matches "(?i)[\s\x22';(](DROP\s+(TABLE|DATABASE|SCHEMA|VIEW|INDEX|SEQUENCE|FUNCTION|TRIGGER|TYPE|EXTENSION|ROLE|USER|OWNED)|TRUNCATE|ALTER\s+(TABLE|DATABASE|SCHEMA|ROLE|USER))\b"
+        or command matches "(?i)[\s\x22';(]DELETE\s+FROM\s+[\w.\x22\x60\[\]]+\s*(;|\x22|'|$)"
+        or (command matches "(?i)[\s\x22';(]UPDATE\s+[\w.\x22\x60\[\]]+\s+SET\b" and not command matches "(?i)\bWHERE\b"))
+    verdict: ask
+    reason: "Database CLI running DROP, TRUNCATE, ALTER, or DELETE/UPDATE without a WHERE clause. Confirm the connection target (host, database) and the statement."
+    irreversible: true
+    timeout: 10m
+
+  - id: db-cli-drop-tools-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)(^|[\s;&|(])(dropdb|dropuser|mysqladmin(\.exe)?\s[^;&|]*\bdrop)\b"
+        or command matches "(?i)(^|[\s;&|(])pg_restore\b[^;&|]*\s(--clean|-c)\b"
+        or command matches "(?i)(^|[\s;&|(])redis-cli\b[^;&|]*\b(FLUSHALL|FLUSHDB)\b"
+        or command matches "(?i)(^|[\s;&|(])mongo(sh)?\b[^;&|]*(dropDatabase\(|\.drop\(\)|deleteMany\(\s*\{\s*\}\s*\)|remove\(\s*\{\s*\}\s*\))")
+    verdict: ask
+    reason: "This drops a database or role, restores over existing objects, or wipes a Redis/Mongo store. Confirm the target first."
+    irreversible: true
+    timeout: 10m
+
+  - id: db-migration-reset-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\bprisma\s+(migrate\s+reset|db\s+push\b[^;&|]*--(force-reset|accept-data-loss))"
+        or command matches "(?i)\b(rails|rake)\s+db:(drop|reset|schema:load|purge)\b"
+        or command matches "(?i)\bmanage\.py\s+(flush|reset_db|sqlflush)\b"
+        or command matches "(?i)\b(drizzle-kit\s+(drop|push\b[^;&|]*--force)|typeorm\s+schema:drop|sequelize(-cli)?\s+db:(drop|migrate:undo:all)|knex\s+migrate:rollback\b[^;&|]*--all|alembic\s+downgrade\s+base|flyway\b[^;&|]*\bclean)\b")
+    verdict: ask
+    reason: "ORM or migration command that drops tables, resets the schema or rolls every migration back. Confirm DATABASE_URL points where you think it does."
+    irreversible: true
+    timeout: 10m
+
+  - id: db-select-allowed
+    when: >-
+      not tool startswith "web" and not tool == "http"
+      and query matches "(?is)^(\s|--[^\n]*|/\*[^*]*\*+/)*(SELECT|WITH|EXPLAIN|SHOW|DESCRIBE|DESC|VALUES|TABLE)\b[^;]*;?\s*$"
+      and not query matches "(?i)\b(INSERT|UPDATE|DELETE|MERGE|UPSERT|REPLACE|DROP|TRUNCATE|ALTER|CREATE|GRANT|REVOKE|COPY|CALL|DO|EXEC|EXECUTE|INTO|LOCK|VACUUM|ANALYZE|SET|nextval|setval|lo_import|lo_export|lo_unlink|pg_read_file|pg_read_binary_file|pg_ls_dir|pg_terminate_backend|pg_cancel_backend|pg_reload_conf|set_config|dblink[\w]*|LOAD_FILE|OUTFILE|DUMPFILE|SLEEP|BENCHMARK|pg_sleep|load_extension)\b|\bFOR\s+(UPDATE|SHARE|NO\s+KEY\s+UPDATE|KEY\s+SHARE)\b"
+    verdict: allow
+    reason: "A single read-only SELECT/EXPLAIN/SHOW statement with no side-effecting functions."
+
+  - id: db-schema-introspection-allowed
+    when: >-
+      tool matches "^(list_tables|describe_table|list_schemas|list_databases|get_schema|list_objects|get_object_details|describe-table|list-tables)$"
+      and server matches "(?i)postgres|mysql|maria|sqlite|sql|supabase|neon|database|db"
+    verdict: allow
+    reason: "Read-only schema introspection tool on a database MCP server."

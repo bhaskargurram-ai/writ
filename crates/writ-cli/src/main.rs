@@ -9,6 +9,7 @@ mod cmds;
 mod hook;
 mod integrate;
 mod mcp_http;
+mod packs;
 mod receipt;
 mod run;
 mod ui;

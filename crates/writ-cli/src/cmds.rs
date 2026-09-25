@@ -378,11 +378,19 @@ pub fn policy_add(pack: &str) -> Result<()> {
         PathBuf::from(format!("packs/{pack}/pack.yaml")),
         PathBuf::from(format!("packs/{pack}.yaml")),
     ];
-    let src = search
-        .iter()
-        .find(|p| p.exists())
-        .ok_or_else(|| anyhow!("pack '{pack}' not found in ./packs (registry: wave 3)"))?;
-    let bytes = std::fs::read(src)?;
+    // A local ./packs (a checkout, or your own packs) wins; otherwise the
+    // packs bundled into this binary.
+    let bytes = match search.iter().find(|p| p.exists()) {
+        Some(src) => std::fs::read(src)?,
+        None => crate::packs::bundled(pack)
+            .map(|s| s.as_bytes().to_vec())
+            .ok_or_else(|| {
+                anyhow!(
+                    "pack '{pack}' not found in ./packs or in this build; bundled packs: {}",
+                    crate::packs::names()
+                )
+            })?,
+    };
     let dest_dir = PathBuf::from(".writ/packs");
     std::fs::create_dir_all(&dest_dir)?;
     let dest = dest_dir.join(format!("{pack}.yaml"));

@@ -1,0 +1,32 @@
+# Fixtures for packs/pii-redaction, run against the pack wrapped in
+# `version: 1` / `default: ask` (unmatched -> rule_id: default).
+# Note: `redact` executes the call and masks the result, so these rules also
+# let the matched calls run without a prompt (see README.md).
+
+- name: CRM tool result is redacted for emails
+  ctx: { tool: crm.lookup, args: { query: "customer 42" } }
+  expect: { verdict: redact, rule_id: redact-emails }
+
+- name: fs.read is redacted (first match is the email rule)
+  ctx: { tool: fs.read, args: { file_path: "/repo/data/customers.csv" } }
+  expect: { verdict: redact, rule_id: redact-emails }
+
+- name: http is redacted (first match is the email rule)
+  ctx: { tool: http, args: { url: "https://api.example.com/users" } }
+  expect: { verdict: redact, rule_id: redact-emails }
+
+- name: bash output is redacted for AWS keys
+  ctx: { tool: bash, args: { command: "cat deploy/settings.ini" } }
+  expect: { verdict: redact, rule_id: redact-aws-keys }
+
+- name: MCP tool results are redacted for private keys
+  ctx: { tool: get_file_contents, server: github, args: { path: "README.md" } }
+  expect: { verdict: redact, rule_id: redact-private-keys }
+
+- name: postgres query results are redacted for SSN shapes
+  ctx: { tool: postgres.query, mode: processwrap, args: { query: "SELECT ssn FROM people" } }
+  expect: { verdict: redact, rule_id: redact-ssn-like }
+
+- name: web.search in processwrap mode is not matched
+  ctx: { tool: web.search, mode: processwrap, args: { query: "writ policy" } }
+  expect: { verdict: ask, rule_id: default }

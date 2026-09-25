@@ -1,0 +1,159 @@
+# Fixtures for packs/package-publish-guard, run against the pack wrapped in
+# `version: 1` / `default: ask` (unmatched -> rule_id: default). Args are
+# shaped like Claude Code's Bash / PowerShell tool input.
+
+# --- allow: dry runs ------------------------------------------------------
+- name: npm publish --dry-run allowed
+  ctx: { tool: bash, args: { command: "npm publish --dry-run", description: "Check package contents" } }
+  expect: { verdict: allow, rule_id: publish-dry-run-allowed }
+
+- name: cargo publish -p crate --dry-run allowed
+  ctx: { tool: bash, args: { command: "cargo publish -p writ-core --dry-run" } }
+  expect: { verdict: allow, rule_id: publish-dry-run-allowed }
+
+# --- deny -----------------------------------------------------------------
+- name: npm unpublish denied
+  ctx: { tool: bash, args: { command: "npm unpublish @acme/sdk@2.3.0" } }
+  expect: { verdict: deny, rule_id: publish-npm-unpublish-denied }
+
+- name: npm unpublish --force of a whole package denied
+  ctx: { tool: bash, args: { command: "npm unpublish @acme/sdk --force" } }
+  expect: { verdict: deny, rule_id: publish-npm-unpublish-denied }
+
+- name: npm deprecate denied
+  ctx: { tool: bash, args: { command: "npm deprecate @acme/sdk@\"< 3\" \"use v3\"" } }
+  expect: { verdict: deny, rule_id: publish-npm-unpublish-denied }
+
+- name: Windows npm.cmd unpublish denied
+  ctx: { tool: bash, args: { command: "npm.cmd unpublish left-pad@1.0.0" } }
+  expect: { verdict: deny, rule_id: publish-npm-unpublish-denied }
+
+- name: npm owner add denied
+  ctx: { tool: bash, args: { command: "npm owner add stranger @acme/sdk" } }
+  expect: { verdict: deny, rule_id: publish-registry-ownership-denied }
+
+- name: gem owner --add denied
+  ctx: { tool: bash, args: { command: "gem owner acme-gem --add someone@example.com" } }
+  expect: { verdict: deny, rule_id: publish-registry-ownership-denied }
+
+# --- ask ------------------------------------------------------------------
+- name: npm publish asks
+  ctx: { tool: bash, args: { command: "npm publish --access public" } }
+  expect: { verdict: ask, rule_id: publish-npm-asks }
+
+- name: npm publish after a build in the same command asks
+  ctx: { tool: bash, args: { command: "npm run build && npm publish --tag next" } }
+  expect: { verdict: ask, rule_id: publish-npm-asks }
+
+- name: pnpm -r publish asks
+  ctx: { tool: bash, args: { command: "pnpm -r publish --no-git-checks" } }
+  expect: { verdict: ask, rule_id: publish-npm-asks }
+
+- name: yarn npm publish (berry) asks
+  ctx: { tool: bash, args: { command: "yarn npm publish --tolerate-republish" } }
+  expect: { verdict: ask, rule_id: publish-npm-asks }
+
+- name: changeset publish asks
+  ctx: { tool: bash, args: { command: "npx changeset publish" } }
+  expect: { verdict: ask, rule_id: publish-npm-asks }
+
+- name: npm dist-tag add latest asks
+  ctx: { tool: bash, args: { command: "npm dist-tag add @acme/sdk@3.0.0-rc.1 latest" } }
+  expect: { verdict: ask, rule_id: publish-npm-asks }
+
+- name: twine upload asks
+  ctx: { tool: bash, args: { command: "twine upload dist/*" } }
+  expect: { verdict: ask, rule_id: publish-python-asks }
+
+- name: python -m twine upload to testpypi asks
+  ctx: { tool: bash, args: { command: "python -m twine upload --repository testpypi dist/*" } }
+  expect: { verdict: ask, rule_id: publish-python-asks }
+
+- name: uv publish asks
+  ctx: { tool: bash, args: { command: "uv publish --token $PYPI_TOKEN" } }
+  expect: { verdict: ask, rule_id: publish-python-asks }
+
+- name: poetry publish --build asks
+  ctx: { tool: bash, args: { command: "poetry publish --build" } }
+  expect: { verdict: ask, rule_id: publish-python-asks }
+
+- name: cargo publish asks
+  ctx: { tool: bash, args: { command: "cargo publish -p writ-cli" } }
+  expect: { verdict: ask, rule_id: publish-cargo-asks }
+
+- name: cargo yank asks
+  ctx: { tool: bash, args: { command: "cargo yank --version 0.1.0 writ-core" } }
+  expect: { verdict: ask, rule_id: publish-yank-asks }
+
+- name: gem push asks
+  ctx: { tool: bash, args: { command: "gem push acme-0.4.0.gem" } }
+  expect: { verdict: ask, rule_id: publish-gem-asks }
+
+- name: docker push asks
+  ctx: { tool: bash, args: { command: "docker push ghcr.io/acme/api:latest" } }
+  expect: { verdict: ask, rule_id: publish-image-push-asks }
+
+- name: docker buildx build --push asks
+  ctx: { tool: bash, args: { command: "docker buildx build --platform linux/amd64,linux/arm64 -t acme/api:1.2 --push ." } }
+  expect: { verdict: ask, rule_id: publish-image-push-asks }
+
+- name: docker compose push asks
+  ctx: { tool: bash, args: { command: "docker compose push api" } }
+  expect: { verdict: ask, rule_id: publish-image-push-asks }
+
+- name: podman push asks
+  ctx: { tool: bash, args: { command: "podman push quay.io/acme/worker:2.0" } }
+  expect: { verdict: ask, rule_id: publish-image-push-asks }
+
+- name: helm push to OCI asks
+  ctx: { tool: bash, args: { command: "helm push acme-1.4.0.tgz oci://registry.acme.dev/charts" } }
+  expect: { verdict: ask, rule_id: publish-helm-push-asks }
+
+- name: dotnet nuget push asks
+  ctx: { tool: bash, args: { command: "dotnet nuget push bin/Release/Acme.1.0.0.nupkg --source nuget.org --api-key $KEY" } }
+  expect: { verdict: ask, rule_id: publish-other-registries-asks }
+
+- name: gradlew publish asks
+  ctx: { tool: bash, args: { command: "./gradlew publishToSonatype closeAndReleaseSonatypeStagingRepository" } }
+  expect: { verdict: ask, rule_id: publish-other-registries-asks }
+
+- name: PowerShell Publish-Module asks
+  ctx: { tool: bash, args: { command: "Publish-Module -Path .\\AcmeTools -NuGetApiKey $env:PSGALLERY_KEY" } }
+  expect: { verdict: ask, rule_id: publish-other-registries-asks }
+
+- name: vsce publish asks
+  ctx: { tool: bash, args: { command: "npx vsce publish minor" } }
+  expect: { verdict: ask, rule_id: publish-other-registries-asks }
+
+# --- near misses ----------------------------------------------------------
+- name: npm run publish-docs is not a publish
+  ctx: { tool: bash, args: { command: "npm run publish-docs" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: npm pack is not a publish
+  ctx: { tool: bash, args: { command: "npm pack" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: docker pull is not a push
+  ctx: { tool: bash, args: { command: "docker pull ghcr.io/acme/api:latest" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: docker buildx build without --push is local
+  ctx: { tool: bash, args: { command: "docker buildx build -t acme/api:dev --load ." } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: git push is not a registry push
+  ctx: { tool: bash, args: { command: "git push origin feat/x" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: twine check is not an upload
+  ctx: { tool: bash, args: { command: "twine check dist/*" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: dry run chained with a real publish is not allowed
+  ctx: { tool: bash, args: { command: "npm publish --dry-run && npm publish" } }
+  expect: { verdict: ask, rule_id: publish-npm-asks }
+
+- name: grep for the word unpublish is not an unpublish
+  ctx: { tool: bash, args: { command: "grep -rn unpublish docs/" } }
+  expect: { verdict: ask, rule_id: default }

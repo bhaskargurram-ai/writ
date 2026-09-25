@@ -1,0 +1,141 @@
+id: gcp-azure-safety
+version: 0.1.0
+description: Hard blocks and human gates for destructive gcloud, gsutil, bq and az operations (plus Az / Google Cloud PowerShell cmdlets); read-only list/describe/show calls pass.
+# Evaluated in order, first match wins: deny, then ask, then the read-only
+# allows. `gcloud.cmd` / `az.cmd` are what Windows shells resolve, hence the
+# optional suffixes and (?i). [^;&|]* keeps a match inside one pipeline
+# segment. The allows are anchored, reject shell metacharacters, and refuse
+# any command that also carries a mutating verb.
+rules:
+  - id: gcp-project-delete-denied
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\bgcloud(\.cmd|\.exe)?\s[^;&|]*?\bprojects\s+delete\b"
+        or command matches "(?i)\bRemove-GcpProject\b")
+    verdict: deny
+    reason: "Deleting a GCP project shuts down every resource and API in it. A human does this from the console, not an agent."
+
+  - id: gcp-audit-logging-tamper-denied
+    when: >-
+      tool == "bash"
+      and command matches "(?i)\bgcloud(\.cmd|\.exe)?\s[^;&|]*?\blogging\s+(sinks|buckets|views)\s+delete\b"
+    verdict: deny
+    reason: "Deleting log sinks or log buckets removes the audit trail for what happens next. Make this change outside the agent."
+
+  - id: az-keyvault-purge-denied
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\baz(\.cmd)?\s[^;&|]*?\bkeyvault\s+((secret|key|certificate)\s+)?purge\b"
+        or command matches "(?i)\bRemove-AzKeyVault(Secret|Key|Certificate)?\b[^;&|]*-InRemovedState\b")
+    verdict: deny
+    reason: "Purging a soft-deleted Key Vault object destroys it permanently; anything encrypted with a purged key is lost. Not an agent task."
+
+  - id: az-audit-logging-tamper-denied
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\baz(\.cmd)?\s[^;&|]*?\bmonitor\s+(diagnostic-settings\s+delete|log-analytics\s+workspace\s+delete|activity-log\s+alert\s+delete)\b"
+        or command matches "(?i)\bRemove-AzDiagnosticSetting\b")
+    verdict: deny
+    reason: "Deleting diagnostic settings or the Log Analytics workspace removes the audit trail for what happens next. Make this change outside the agent."
+
+  - id: gcp-storage-delete-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\bgsutil(\.cmd)?\s([^;&|]*?\s)?(rm|rb)(\s|$)"
+        or command matches "(?i)\bgsutil(\.cmd)?\s[^;&|]*?\brsync\b[^;&|]*\s-[a-zA-Z]*d"
+        or command matches "(?i)\bgcloud(\.cmd|\.exe)?\s[^;&|]*?\bstorage\s+(rm|buckets\s+delete)(\s|$)"
+        or command matches "(?i)\bgcloud(\.cmd|\.exe)?\s[^;&|]*?\bstorage\s+rsync\b[^;&|]*--delete-unmatched-destination-objects"
+        or command matches "(?i)(^|[\s;&|(])bq(\.cmd)?\s([^;&|]*?\s)?rm(\s|$)")
+    verdict: ask
+    reason: "Deleting Cloud Storage objects/buckets or BigQuery datasets/tables. Without object versioning or table snapshots this cannot be undone. Check the path and any -r flag."
+    irreversible: true
+    timeout: 10m
+
+  - id: gcp-kms-destroy-asks
+    when: >-
+      tool == "bash"
+      and command matches "(?i)\bgcloud(\.cmd|\.exe)?\s[^;&|]*?\bkms\s+keys\s+versions\s+(destroy|disable)\b"
+    verdict: ask
+    reason: "Destroying a KMS key version makes data encrypted under it unrecoverable once the scheduled destruction runs."
+    irreversible: true
+    timeout: 10m
+
+  - id: gcp-iam-change-asks
+    when: >-
+      tool == "bash"
+      and command matches "(?i)\bgcloud(\.cmd|\.exe)?\s[^;&|]*?\s(add-iam-policy-binding|remove-iam-policy-binding|set-iam-policy|keys\s+create|keys\s+upload|roles\s+(create|update)|workload-identity-pools\s+[a-z-]*\s*create)\b"
+    verdict: ask
+    reason: "IAM binding, policy or service-account key change: a privilege escalation or long-lived credential. Review the member, the role and the resource."
+    timeout: 10m
+
+  - id: gcp-secret-read-asks
+    when: >-
+      tool == "bash"
+      and command matches "(?i)\bgcloud(\.cmd|\.exe)?\s[^;&|]*?\b(secrets\s+versions\s+access|auth\s+(application-default\s+)?print-(access|identity)-token|sql\s+generate-login-token|redis\s+instances\s+get-auth-string)\b"
+    verdict: ask
+    reason: "This call prints a secret or an access token into the model's context (and the transcript). Approve only if the agent genuinely needs the value."
+
+  - id: gcp-delete-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\bgcloud(\.cmd|\.exe)?\s[^;&|]*?\s(delete|destroy|delete-[a-z-]+)\b"
+        or command matches "(?i)\bRemove-(Gce|Gcs|GcSql|Gcd|GcLog|GcPs|GcBq|GcIam|Gke)[A-Za-z]*\b")
+    verdict: ask
+    reason: "gcloud delete: removes a real GCP resource (instance, cluster, database, service account...). Confirm the resource, project and zone."
+    irreversible: true
+
+  - id: az-rbac-change-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\baz(\.cmd)?\s[^;&|]*?\b(role\s+assignment\s+(create|delete|update)|role\s+definition\s+(create|update|delete)|ad\s+sp\s+create-for-rbac|ad\s+(sp|app)\s+credential\s+reset|ad\s+app\s+permission\s+(add|grant|admin-consent)|keyvault\s+set-policy)\b"
+        or command matches "(?i)\b(New|Remove)-AzRoleAssignment\b|\bNew-AzADServicePrincipal\b")
+    verdict: ask
+    reason: "Azure RBAC, service-principal credential or Key Vault access-policy change: a privilege escalation path. Review the principal, role and scope."
+    timeout: 10m
+
+  - id: az-secret-read-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\baz(\.cmd)?\s[^;&|]*?\b(keyvault\s+secret\s+(show|download)|keyvault\s+key\s+download|keys\s+list|list-keys|show-connection-string|connection-string\s+(show|list)|get-access-token|acr\s+credential\s+show|appsettings\s+list|list-publishing-(profiles|credentials)|generate-sas|admin-key\s+show|query-key\s+list)\b"
+        or command matches "(?i)\bGet-AzKeyVaultSecret\b[^;&|]*-AsPlainText\b"
+        or command matches "(?i)\b(Get-AzStorageAccountKey|Get-AzAccessToken|Get-AzCosmosDBAccountKey|Get-AzRedisCacheKey|New-AzStorage[A-Za-z]*SASToken)\b")
+    verdict: ask
+    reason: "This call returns keys, connection strings, SAS tokens or access tokens into the model's context (and the transcript). Approve only if the agent genuinely needs the value."
+
+  - id: az-group-delete-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\baz(\.cmd)?\s[^;&|]*?\bgroup\s+delete\b"
+        or command matches "(?i)\bRemove-AzResourceGroup\b")
+    verdict: ask
+    reason: "Deleting a resource group deletes every resource inside it. List its contents (`az resource list -g <name>`) and confirm."
+    irreversible: true
+    timeout: 10m
+
+  - id: az-delete-asks
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)\baz(\.cmd)?\s[^;&|]*?\s(delete|purge|delete-batch)(\s|$)"
+        or command matches "(?i)\bRemove-Az[A-Za-z]+\b")
+    verdict: ask
+    reason: "Azure delete: removes a real resource (VM, database, storage, cluster...). Confirm the resource, resource group and subscription."
+    irreversible: true
+
+  - id: gcp-read-only-allowed
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)^\s*gcloud(\.cmd|\.exe)?\s[^;&|<>$\x60()\n\r]*\s(list|describe)(\s[^;&|<>$\x60()\n\r]*)?$"
+        or command matches "(?i)^\s*gcloud(\.cmd|\.exe)?\s+(info|version|config\s+list|auth\s+list)(\s[^;&|<>$\x60()\n\r]*)?$"
+        or command matches "(?i)^\s*(gsutil(\.cmd)?|gcloud(\.cmd|\.exe)?\s+storage)\s+(ls|du)(\s[^;&|<>$\x60()\n\r]*)?$")
+      and not command matches "(?i)\s(create|update|delete|destroy|patch|deploy|import|export|reset|resize|start|stop|restart|ssh|scp|execute|run|submit|apply|enable|disable|move|attach|detach|rollback|restore|access|set|unset|add-[a-z-]+|remove-[a-z-]+|set-[a-z-]+|print-[a-z-]+|get-credentials|generate-[a-z-]+)(\s|$)"
+    verdict: allow
+    reason: "Read-only gcloud/gsutil list or describe call with no shell chaining."
+
+  - id: az-read-only-allowed
+    when: >-
+      tool == "bash"
+      and (command matches "(?i)^\s*az(\.cmd)?\s[^;&|<>$\x60()\n\r]*\s(list|show)(\s[^;&|<>$\x60()\n\r]*)?$"
+        or command matches "(?i)^\s*az(\.cmd)?\s+(version|account\s+show|account\s+list)(\s[^;&|<>$\x60()\n\r]*)?$")
+      and not command matches "(?i)\s(create|update|delete|purge|set|add|remove|start|stop|restart|deallocate|redeploy|reset|renew|regenerate|import|export|deploy|invoke|run|run-command|login|logout|download|upload|grant|revoke|lock|unlock|failover|restore|swap|scale|get-access-token|get-credentials|generate-sas|[a-z-]+-keys?)(\s|$)"
+    verdict: allow
+    reason: "Read-only az list or show call with no shell chaining."

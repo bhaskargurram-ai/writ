@@ -1,0 +1,173 @@
+id: github-safety
+version: 0.1.0
+description: Hard blocks and human gates for git history rewrites, force pushes to protected branches, destructive gh CLI calls and the GitHub MCP server's delete/merge tools; read-only git and gh calls pass.
+# Evaluated in order, first match wins. git and gh flags are case-sensitive,
+# so these regexes are too (except the Windows `.exe` suffix). [^;&|]* keeps a
+# match inside one pipeline segment. "Protected" means main, master, trunk,
+# develop, prod, production and release*: edit the branch list in
+# github-force-push-protected-denied to match your repository's rules.
+# The git allow accepts one narrow pipe tail (| head -n N, | wc -l,
+# | grep PATTERN) whose arguments cannot name a file.
+rules:
+  - id: github-push-mirror-denied
+    when: >-
+      tool == "bash"
+      and command matches "\bgit(\.exe)?\s([^;&|]*?\s)?push\b[^;&|]*\s--mirror\b"
+    verdict: deny
+    reason: "`git push --mirror` overwrites every ref on the remote and deletes remote branches and tags that do not exist locally. Push the branches you mean by name."
+
+  - id: github-force-push-protected-denied
+    when: >-
+      tool == "bash"
+      and command matches "\bgit(\.exe)?\s([^;&|]*?\s)?push\b[^;&|]*(\s--force\b|\s--force-with-lease\b|\s--force-if-includes\b|\s-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+)"
+      and command matches "\bgit(\.exe)?\s([^;&|]*?\s)?push\b[^;&|]*[\s:+/](main|master|trunk|develop|prod|production|release[\w./-]*)(\s|$)"
+    verdict: deny
+    reason: "Force-pushing a protected branch rewrites history other people have already pulled. Open a PR, or revert with a new commit."
+
+  - id: github-repo-delete-denied
+    when: >-
+      tool == "bash"
+      and command matches "\bgh(\.exe)?\s([^;&|]*?\s)?repo\s+delete\b"
+    verdict: deny
+    reason: "`gh repo delete` removes the repository with its issues, PRs, wiki and releases. Only a human owner does this, from the GitHub UI."
+
+  - id: github-branch-protection-change-denied
+    when: >-
+      tool == "bash"
+      and command matches "\bgh(\.exe)?\s([^;&|]*?\s)?api\b[^;&|]*(/branches/[^\s/]+/protection|/rulesets)"
+      and command matches "\bgh(\.exe)?\s([^;&|]*?\s)?api\b[^;&|]*(-X\s*|--method[\s=]+)(DELETE|PUT|PATCH|POST)\b"
+    verdict: deny
+    reason: "Changing branch protection or rulesets disables the review gates that protect main. Repository admins change these by hand."
+
+  - id: github-pr-merge-admin-denied
+    when: >-
+      tool == "bash"
+      and command matches "\bgh(\.exe)?\s([^;&|]*?\s)?pr\s+merge\b[^;&|]*\s--admin\b"
+    verdict: deny
+    reason: "`gh pr merge --admin` bypasses required reviews and status checks. Merge through the normal review path."
+
+  - id: github-auth-token-denied
+    when: >-
+      tool == "bash"
+      and (command matches "\bgh(\.exe)?\s([^;&|]*?\s)?auth\s+token\b"
+        or command matches "\bgh(\.exe)?\s([^;&|]*?\s)?auth\s+status\b[^;&|]*\s(--show-token|-t)\b")
+    verdict: deny
+    reason: "This prints your GitHub token into the model's context and the transcript. The gh CLI authenticates by itself; the agent never needs the raw token."
+
+  - id: github-force-push-asks
+    when: >-
+      tool == "bash"
+      and command matches "\bgit(\.exe)?\s([^;&|]*?\s)?push\b[^;&|]*(\s--force\b|\s--force-with-lease\b|\s--force-if-includes\b|\s-[a-zA-Z]*f[a-zA-Z]*(\s|$)|\s\+)"
+    verdict: ask
+    reason: "Force push rewrites the remote branch. Confirm the branch is yours alone and nobody has built on the commits being replaced."
+    irreversible: true
+
+  - id: github-remote-ref-delete-asks
+    when: >-
+      tool == "bash"
+      and command matches "\bgit(\.exe)?\s([^;&|]*?\s)?push\b[^;&|]*(\s--delete\b|\s-d(\s|$)|\s:[^\s])"
+    verdict: ask
+    reason: "Deleting a remote branch or tag. Open PRs based on it are closed and anyone relying on the tag loses it."
+    irreversible: true
+
+  - id: github-history-rewrite-asks
+    when: >-
+      tool == "bash"
+      and (command matches "\bgit(\.exe)?\s([^;&|]*?\s)?(filter-branch|filter-repo|update-ref\s+-d|replace)\b"
+        or command matches "\bgit(\.exe)?\s([^;&|]*?\s)?(reflog\s+expire\b[^;&|]*--expire(-unreachable)?=(now|all)|gc\b[^;&|]*--prune=now)"
+        or command matches "(?i)(^|[\s;&|(])(bfg(\.jar)?|java\s+-jar\s+\S*bfg[\w.-]*\.jar)\s")
+    verdict: ask
+    reason: "History rewrite or reflog/garbage purge: commits become unrecoverable locally, and a later push spreads the rewrite. Confirm the scope and that a backup exists."
+    irreversible: true
+    timeout: 10m
+
+  - id: github-discard-work-asks
+    when: >-
+      tool == "bash"
+      and (command matches "\bgit(\.exe)?\s([^;&|]*?\s)?reset\b[^;&|]*\s--hard\b"
+        or command matches "\bgit(\.exe)?\s([^;&|]*?\s)?clean\b[^;&|]*\s-[a-zA-Z]*f"
+        or command matches "\bgit(\.exe)?\s([^;&|]*?\s)?(checkout\s+(--\s+)?\.|restore\s+(--worktree\s+)?\.)(\s|$)"
+        or command matches "\bgit(\.exe)?\s([^;&|]*?\s)?(stash\s+(drop|clear)|branch\b[^;&|]*\s(-D|--delete\s+--force|--force\s+--delete|-d\s+-f))\b")
+    verdict: ask
+    reason: "This discards uncommitted changes, untracked files, stashes or unmerged branches. Uncommitted work has no reflog: once gone it is gone."
+    irreversible: true
+
+  - id: github-secret-change-asks
+    when: >-
+      tool == "bash"
+      and command matches "\bgh(\.exe)?\s([^;&|]*?\s)?(secret|variable)\s+(set|delete|remove)\b"
+    verdict: ask
+    reason: "Changing Actions secrets or variables alters what CI deploys with. Confirm the name, the scope (repo/env/org) and where the value came from."
+    irreversible: true
+
+  - id: github-release-delete-asks
+    when: >-
+      tool == "bash"
+      and command matches "\bgh(\.exe)?\s([^;&|]*?\s)?release\s+(delete|delete-asset)\b"
+    verdict: ask
+    reason: "Deleting a release or its assets breaks every download link and pinned install that points at it."
+    irreversible: true
+
+  - id: github-repo-settings-asks
+    when: >-
+      tool == "bash"
+      and (command matches "\bgh(\.exe)?\s([^;&|]*?\s)?repo\s+edit\b[^;&|]*--(visibility|default-branch|enable-auto-merge|delete-branch-on-merge|accept-visibility-change-consequences)"
+        or command matches "\bgh(\.exe)?\s([^;&|]*?\s)?repo\s+(archive|rename|unarchive)\b"
+        or command matches "\bgh(\.exe)?\s([^;&|]*?\s)?repo\s+create\b[^;&|]*\s--public\b")
+    verdict: ask
+    reason: "Repository visibility, default branch, archive or rename change. Code that was public even briefly has to be treated as disclosed."
+    irreversible: true
+
+  - id: github-api-delete-asks
+    when: >-
+      tool == "bash"
+      and command matches "\bgh(\.exe)?\s([^;&|]*?\s)?api\b[^;&|]*(-X\s*|--method[\s=]+)DELETE\b"
+    verdict: ask
+    reason: "`gh api -X DELETE` deletes a GitHub resource directly through the REST API. Confirm the endpoint."
+    irreversible: true
+
+  - id: github-pr-merge-asks
+    when: >-
+      tool == "bash"
+      and command matches "\bgh(\.exe)?\s([^;&|]*?\s)?pr\s+merge\b"
+    verdict: ask
+    reason: "Merging a PR lands it on the base branch and can trigger deploys. Confirm reviews and checks are green."
+
+  - id: github-cli-delete-asks
+    when: >-
+      tool == "bash"
+      and command matches "\bgh(\.exe)?\s([^;&|]*?\s)?[a-z-]+\s+(delete|remove)(\s|$)"
+    verdict: ask
+    reason: "gh delete: removes an issue, label, gist, cache, run, key or project. Confirm the target."
+    irreversible: true
+
+  - id: github-mcp-destructive-asks
+    when: >-
+      server matches "(?i)github"
+      and tool matches "(?i)^(delete_|remove_|merge_|cancel_|archive_|transfer_)|_delete$|^(update_repository|update_branch_protection|create_or_update_secret)$"
+    verdict: ask
+    reason: "GitHub MCP tool that deletes, merges, cancels or changes repository settings. Confirm the repository, branch and target."
+    irreversible: true
+
+  - id: github-mcp-read-allowed
+    when: >-
+      server matches "(?i)github"
+      and tool matches "^(get_|list_|search_)[a-z_]+$"
+    verdict: allow
+    reason: "Read-only GitHub MCP tool."
+
+  - id: github-git-read-only-allowed
+    when: >-
+      tool == "bash"
+      and (command matches "^\s*git(\.exe)?(\s+-C\s+[^\s;&|<>$\x60()]+)?(\s+--no-pager)?\s+(status|log|diff|show|blame|rev-parse|ls-files|ls-remote|describe|shortlog|merge-base|cat-file)(\s[^;&|<>$\x60()\n\r]*)?(\s*\|\s*(head|tail)(\s+-n\s*\d+|\s+-\d+)?|\s*\|\s*wc(\s+-[lwcm])?|\s*\|\s*grep(\s+-[a-zA-Z]+)*\s+(\x22[^\x22$\x60]*\x22|'[^']*'|[\w.:-]+))*\s*$"
+        or command matches "^\s*git(\.exe)?(\s+-C\s+[^\s;&|<>$\x60()]+)?(\s+--no-pager)?\s+(branch(\s+(-a|-r|-v|-vv|--all|--remotes|--list|--show-current|--merged|--no-merged))*|remote(\s+-v)?|tag(\s+(-l|--list))?|stash\s+list|config\s+(--get\s+[\w.-]+|--list|-l))\s*$")
+      and not command matches "\s--output(=|\s)"
+    verdict: allow
+    reason: "Read-only git inspection with no shell chaining."
+
+  - id: github-gh-read-only-allowed
+    when: >-
+      tool == "bash"
+      and command matches "^\s*gh(\.exe)?\s+((pr|issue|repo|run|release|workflow|label|gist|cache|ruleset|secret|variable)\s+(list|view|status|diff|checks)|status|search\s+[a-z]+)(\s[^;&|<>$\x60()\n\r]*)?$"
+    verdict: allow
+    reason: "Read-only gh query with no shell chaining."

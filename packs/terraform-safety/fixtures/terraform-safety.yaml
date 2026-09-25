@@ -1,0 +1,47 @@
+# Fixtures for packs/terraform-safety, run against the pack wrapped in
+# `version: 1` / `default: ask` (unmatched -> rule_id: default).
+
+- name: terraform destroy asks
+  ctx: { tool: bash, args: { command: "terraform destroy -target=aws_instance.web" } }
+  expect: { verdict: ask, rule_id: tf-destroy-asks }
+
+- name: terraform apply -auto-approve asks
+  ctx: { tool: bash, args: { command: "terraform apply -auto-approve tfplan" } }
+  expect: { verdict: ask, rule_id: tf-apply-prod-asks }
+
+- name: terraform state rm asks
+  ctx: { tool: bash, args: { command: "terraform state rm module.db.aws_db_instance.main" } }
+  expect: { verdict: ask, rule_id: tf-state-rm-asks }
+
+- name: terraform force-unlock denied
+  ctx: { tool: bash, args: { command: "terraform force-unlock 6f1c2a9e" } }
+  expect: { verdict: deny, rule_id: tf-force-unlock-denied }
+
+- name: terraform plan falls to default
+  ctx: { tool: bash, args: { command: "terraform plan -out tfplan" } }
+  expect: { verdict: ask, rule_id: default }
+
+- name: interactive terraform apply (no -auto-approve) falls to default
+  ctx: { tool: bash, args: { command: "terraform apply tfplan" } }
+  expect: { verdict: ask, rule_id: default }
+
+# Global options before the subcommand must not hide it.
+- name: chdir before destroy still asks
+  ctx: { tool: bash, args: { command: "terraform -chdir=infra/prod destroy" } }
+  expect: { verdict: ask, rule_id: tf-destroy-asks }
+
+- name: apply -destroy is a destroy
+  ctx: { tool: bash, args: { command: "terraform apply -destroy -auto-approve" } }
+  expect: { verdict: ask, rule_id: tf-destroy-asks }
+
+- name: OpenTofu destroy asks
+  ctx: { tool: bash, args: { command: "tofu destroy" } }
+  expect: { verdict: ask, rule_id: tf-destroy-asks }
+
+- name: chdir before state rm still asks
+  ctx: { tool: bash, args: { command: "terraform -chdir=infra state rm aws_s3_bucket.logs" } }
+  expect: { verdict: ask, rule_id: tf-state-rm-asks }
+
+- name: a plan is not a destroy
+  ctx: { tool: bash, args: { command: "terraform -chdir=infra plan" } }
+  expect: { verdict: ask, rule_id: default }

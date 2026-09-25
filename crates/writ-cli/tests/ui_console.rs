@@ -367,7 +367,12 @@ fn policy_validate_test_and_save() {
     assert_eq!(std::fs::read_to_string(bak).unwrap(), POLICY);
 
     let packs = c.get("/api/packs").json();
-    assert_eq!(packs["packs"].as_array().unwrap().len(), 3);
+    let on_disk = std::fs::read_dir(concat!(env!("CARGO_MANIFEST_DIR"), "/../../packs"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.path().join("pack.yaml").is_file())
+        .count();
+    assert_eq!(packs["packs"].as_array().unwrap().len(), on_disk);
 }
 
 fn sandbox_available(c: &Console) -> bool {

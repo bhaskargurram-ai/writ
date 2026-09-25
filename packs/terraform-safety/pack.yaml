@@ -1,23 +1,25 @@
 id: terraform-safety
-version: 0.1.0
-description: Human gates and hard blocks for Terraform operations against real infrastructure.
+version: 0.2.0
+description: Human gates and hard blocks for Terraform and OpenTofu operations against real infrastructure.
+# Subcommands are matched anywhere after `terraform` / `tofu` within one
+# pipeline segment, so global options (-chdir=DIR) do not hide them.
 rules:
   - id: tf-destroy-asks
-    when: tool == "bash" and command contains "terraform destroy"
+    when: tool == "bash" and command matches "(?i)\b(terraform|tofu)(\.exe)?\s[^;&|]*?(\bdestroy\b|\bapply\b[^;&|]*\s-destroy\b)"
     verdict: ask
-    reason: "terraform destroy tears down real infrastructure. Review the plan output first."
+    reason: "Destroy tears down real infrastructure (this includes `apply -destroy`). Review the plan output first."
     irreversible: true
     timeout: 10m
 
   - id: tf-apply-prod-asks
-    when: tool == "bash" and command matches "terraform apply" and command contains "-auto-approve"
+    when: tool == "bash" and command matches "(?i)\b(terraform|tofu)(\.exe)?\s[^;&|]*?\bapply\b" and command contains "-auto-approve"
     verdict: ask
     reason: "Unattended apply (-auto-approve) on shared state. Confirm the plan was reviewed."
     irreversible: true
     timeout: 10m
 
   - id: tf-state-rm-asks
-    when: tool == "bash" and command contains "terraform state rm"
+    when: tool == "bash" and command matches "(?i)\b(terraform|tofu)(\.exe)?\s[^;&|]*?\bstate\s+rm\b"
     verdict: ask
     reason: "Removing state orphans real resources — they keep running but Terraform stops tracking them."
     irreversible: true
