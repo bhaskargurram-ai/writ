@@ -230,7 +230,13 @@ pub(crate) fn powershell_command(argv: &[String], propagate: bool) -> String {
 pub(crate) fn portable_command(argv: &[String]) -> Result<String> {
     if cfg!(windows) {
         let toks: Vec<String> = argv.iter().map(|a| a.replace('\\', "/")).collect();
-        if let Some(bad) = toks.iter().find(|t| !is_bare(t, &[])) {
+        // `~` is literal in cmd.exe and in PowerShell except as a token's
+        // first character (home), and it is common in 8.3 short paths
+        // (C:/Users/RUNNER~1/...).
+        if let Some(bad) = toks
+            .iter()
+            .find(|t| !is_bare(t, &['~']) || t.starts_with('~'))
+        {
             bail!(
                 "{bad:?} cannot be written into a hook command that works under both cmd.exe and \
                  PowerShell (it needs quoting). Move writ, the policy and the ledger to paths \
@@ -965,5 +971,14 @@ mod tests {
         let once = merge_gemini_settings(existing, &g).unwrap();
         assert_eq!(once, merge_gemini_settings(once.clone(), &g).unwrap());
         assert_eq!(once["hooks"]["BeforeTool"].as_array().unwrap().len(), 2);
+    }
+
+    #[cfg(windows)]
+    #[test]
+    fn portable_command_accepts_short_path_tildes_but_not_a_leading_one() {
+        let ok = portable_command(&["C:/Users/RUNNER~1/AppData/writ.exe".to_string()]);
+        assert_eq!(ok.unwrap(), "C:/Users/RUNNER~1/AppData/writ.exe");
+        assert!(portable_command(&["~/writ.exe".to_string()]).is_err());
+        assert!(portable_command(&["C:/Program Files/writ.exe".to_string()]).is_err());
     }
 }

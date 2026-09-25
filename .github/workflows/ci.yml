@@ -138,14 +138,16 @@ jobs:
         image: postgres:16
         env:
           POSTGRES_USER: writ
-          POSTGRES_PASSWORD: writ
+          # Distinct from every identifier in the tests, so the
+          # "password never appears in output" checks cannot match a name.
+          POSTGRES_PASSWORD: pg-ci-9f3c1d
           POSTGRES_DB: writ_test
         ports: ['5432:5432']
         options: >-
           --health-cmd "pg_isready -U writ" --health-interval 5s
           --health-timeout 5s --health-retries 10
     env:
-      WRIT_POSTGRES_URL: postgres://writ:writ@localhost:5432/writ_test?sslmode=disable
+      WRIT_POSTGRES_URL: postgres://writ:pg-ci-9f3c1d@localhost:5432/writ_test?sslmode=disable
     steps:
       - uses: actions/checkout@v7
       - uses: dtolnay/rust-toolchain@stable

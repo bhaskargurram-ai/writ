@@ -301,7 +301,8 @@ fn spawn_writer(path: &std::path::Path, writer: usize, n: usize) -> std::process
             .env(STRESS_LEDGER_ENV, path)
             .env(STRESS_WRITER_ENV, writer.to_string())
             .env(STRESS_RECORDS_ENV, n.to_string())
-            .stdout(std::process::Stdio::null())
+            .stdout(std::process::Stdio::piped())
+            .stderr(std::process::Stdio::piped())
             .spawn();
         match r {
             Ok(c) => return c,
@@ -371,9 +372,14 @@ fn multi_process_writers_with_lock_free_readers() {
         .map(|w| spawn_writer(&path, w, PER_WRITER))
         .collect();
     let mut failed = Vec::new();
-    for (w, c) in children.iter_mut().enumerate() {
-        if !c.wait().unwrap().success() {
-            failed.push(w);
+    for (w, c) in children.drain(..).enumerate() {
+        let out = c.wait_with_output().unwrap();
+        if !out.status.success() {
+            failed.push(format!(
+                "writer {w}: {}{}",
+                String::from_utf8_lossy(&out.stdout),
+                String::from_utf8_lossy(&out.stderr)
+            ));
         }
     }
     done.store(true, Ordering::SeqCst);

@@ -60,7 +60,7 @@ use std::ffi::OsString;
 use std::fs::{File, OpenOptions, TryLockError};
 use std::io::{BufRead, BufReader, Read, Seek, SeekFrom, Write};
 use std::path::{Path, PathBuf};
-use std::time::{Duration, Instant};
+use std::time::Duration;
 
 use writ_core::error::{Result, WritError};
 use writ_core::ledger::{LedgerRecord, LedgerStore, GENESIS_HASH};
@@ -160,21 +160,35 @@ impl FileLedgerStore {
             .create(true)
             .truncate(false)
             .open(&self.lock_path)?;
-        let deadline = Instant::now() + LOCK_TIMEOUT;
-        loop {
-            match file.try_lock() {
-                Ok(()) => return Ok(LockGuard(file)),
-                Err(TryLockError::WouldBlock) if Instant::now() < deadline => {
-                    std::thread::sleep(Duration::from_millis(2));
+        match file.try_lock() {
+            Ok(()) => return Ok(LockGuard(file)),
+            Err(TryLockError::WouldBlock) => {}
+            Err(TryLockError::Error(e)) => return Err(e.into()),
+        }
+        // Contended: wait in the OS lock queue instead of polling. Polling
+        // `try_lock` is unfair — under sustained contention one writer can
+        // keep losing the race until it times out — while a blocking lock
+        // is granted to waiters by the kernel. The wait happens on a helper
+        // thread so it stays bounded by LOCK_TIMEOUT; if the caller gives
+        // up first, the thread releases the lock the moment it gets it.
+        let (tx, rx) = std::sync::mpsc::channel();
+        std::thread::spawn(move || match file.lock() {
+            Ok(()) => {
+                if let Err(std::sync::mpsc::SendError(Ok(file))) = tx.send(Ok(file)) {
+                    let _ = file.unlock();
                 }
-                Err(TryLockError::WouldBlock) => {
-                    return Err(WritError::Ledger(format!(
-                        "ledger {:?}: another writer held {:?} for more than {:?} (fail closed)",
-                        self.path, self.lock_path, LOCK_TIMEOUT
-                    )))
-                }
-                Err(TryLockError::Error(e)) => return Err(e.into()),
             }
+            Err(e) => {
+                let _ = tx.send(Err(e));
+            }
+        });
+        match rx.recv_timeout(LOCK_TIMEOUT) {
+            Ok(Ok(file)) => Ok(LockGuard(file)),
+            Ok(Err(e)) => Err(e.into()),
+            Err(_) => Err(WritError::Ledger(format!(
+                "ledger {:?}: another writer held {:?} for more than {:?} (fail closed)",
+                self.path, self.lock_path, LOCK_TIMEOUT
+            ))),
         }
     }
 
